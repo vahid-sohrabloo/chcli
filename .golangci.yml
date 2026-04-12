@@ -1,0 +1,79 @@
+version: "2"
+
+linters:
+  disable:
+    - errcheck
+  enable:
+    # Default (minus errcheck — too noisy on defer .Close())
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+
+    # Bugs & correctness
+    - bodyclose
+    - durationcheck
+    - errorlint
+    - nilerr
+    - nosprintfhostport
+    - sqlclosecheck
+    - recvcheck
+
+    # Modernize & simplify
+    - modernize
+    - exptostd
+    - intrange
+    - copyloopvar
+    - perfsprint
+    - unconvert
+    - usestdlibvars
+    - mirror
+
+    # Style & hygiene
+    - misspell
+    - dupword
+    - gocritic
+    - predeclared
+    - nakedret
+    - whitespace
+    - nolintlint
+    - prealloc
+    - wastedassign
+    - unparam
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+    disabled-checks:
+      - hugeParam
+      - rangeValCopy
+      - exitAfterDefer
+  nakedret:
+    max-func-lines: 20
+  misspell:
+    locale: US
+  perfsprint:
+    int-conversion: false
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  exclude-dirs:
+    - vendor
+    - docs
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unparam
+    - path: generated\.go
+      linters:
+        - gocritic
+        - misspell
+
+run:
+  timeout: 5m

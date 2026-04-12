@@ -1,0 +1,5 @@
+/chcli
+*.exe
+.git-backup/
+.superpowers/
+docs/superpowers/
