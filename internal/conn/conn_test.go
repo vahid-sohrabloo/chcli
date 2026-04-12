@@ -257,7 +257,7 @@ func TestMultipleQueries(t *testing.T) {
 	c := mustConnect(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		result, err := c.Query(ctx, "SELECT 1")
 		if err != nil {
 			t.Fatalf("Query %d: %v", i, err)

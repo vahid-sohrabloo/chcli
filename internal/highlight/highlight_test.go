@@ -9,7 +9,7 @@ import (
 // ansiEscapeRe matches ANSI escape sequences.
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// stripANSI removes all ANSI colour/style escape sequences from s.
+// stripANSI removes all ANSI color/style escape sequences from s.
 func stripANSI(s string) string {
 	return ansiEscapeRe.ReplaceAllString(s, "")
 }

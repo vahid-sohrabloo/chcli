@@ -41,7 +41,7 @@ type Router struct {
 	hctx     *HandlerContext
 }
 
-// NewRouter creates a new Router, initialises the HandlerContext, and registers
+// NewRouter creates a new Router, initializes the HandlerContext, and registers
 // all built-in meta-command handlers.
 func NewRouter(c *conn.Conn, cache *schema.Cache, hist *history.Store, cfg *config.Config) *Router {
 	r := &Router{
