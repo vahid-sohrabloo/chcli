@@ -22,11 +22,11 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
@@ -50,6 +50,7 @@ changelog:
 
 nfpms:
   - package_name: chcli
+    maintainer: Vahid Sohrabloo <vahid4134@gmail.com>
     homepage: https://github.com/vahid-sohrabloo/chcli
     description: Modern interactive ClickHouse client for the terminal
     license: MIT
