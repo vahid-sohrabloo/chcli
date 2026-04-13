@@ -6,6 +6,19 @@ Features smart autocompletion, syntax highlighting, query progress tracking, SSH
 
 ## Install
 
+### One-liner (Linux / macOS)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | sh
+```
+
+Installs to `/usr/local/bin/chcli` (uses `sudo` if needed). Override with:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | PREFIX=$HOME/.local sh
+curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | VERSION=v0.1.0 sh
+```
+
 ### Go install
 
 ```bash
