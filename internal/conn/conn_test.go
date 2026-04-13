@@ -123,8 +123,10 @@ func TestDataTypes(t *testing.T) {
 			check: func(t *testing.T, val string) { assertEqual(t, val, "12345678-1234-5678-1234-567812345678") },
 		},
 		{
+			// Array(UInt8) is ambiguous with String in Go ([]byte == []uint8),
+			// so we force a wider integer type here.
 			name:  "Array",
-			query: "SELECT [1, 2, 3] AS v",
+			query: "SELECT [toInt32(1), 2, 3] AS v",
 			check: func(t *testing.T, val string) { assertEqual(t, val, "[1, 2, 3]") },
 		},
 		{

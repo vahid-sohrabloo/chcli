@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +205,8 @@ func formatValue(v any) string {
 		return "NULL"
 	}
 	switch val := v.(type) {
+	// Specific chconn types first (must come before primitive cases
+	// since types.Date = uint16, types.DateTime = uint32, etc.)
 	case types.UUID:
 		return formatUUID(val)
 	case *types.UUID:
@@ -211,10 +214,20 @@ func formatValue(v any) string {
 			return "NULL"
 		}
 		return formatUUID(*val)
+	case types.Date:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02")
+	case types.Date32:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02")
+	case types.DateTime:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02 15:04:05")
+	case types.DateTime64:
+		return val.ToTime(time.UTC, 3).Format("2006-01-02 15:04:05.000")
+	case types.IPv4:
+		return val.NetIP().String()
+	case types.IPv6:
+		return val.NetIP().String()
 	case net.IP:
 		return val.String()
-	case []byte:
-		return string(val)
 	case time.Time:
 		return val.Format("2006-01-02 15:04:05")
 	case bool:
@@ -222,6 +235,10 @@ func formatValue(v any) string {
 			return "true"
 		}
 		return "false"
+	case string:
+		return val
+	case []byte:
+		return string(val)
 	case int8:
 		return strconv.FormatInt(int64(val), 10)
 	case int16:
@@ -242,36 +259,58 @@ func formatValue(v any) string {
 		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(float64(val), 'f', -1, 32), "0"), ".")
 	case float64:
 		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(val, 'f', -1, 64), "0"), ".")
-	case []any:
-		parts := make([]string, len(val))
-		for i, elem := range val {
-			parts[i] = formatValue(elem)
-		}
-		return "[" + strings.Join(parts, ", ") + "]"
 	case map[string]any:
 		pairs := make([]string, 0, len(val))
 		for k, mv := range val {
 			pairs = append(pairs, k+": "+formatValue(mv))
 		}
 		return "{" + strings.Join(pairs, ", ") + "}"
-	default:
-		return fmt.Sprintf("%v", v)
 	}
+
+	// Fallback via reflection: handles typed nil pointers, arbitrary
+	// slice types (Array(Int32), Array(String), etc.), and any type with
+	// a String() method.
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if rv.IsNil() {
+			return "NULL"
+		}
+		return formatValue(rv.Elem().Interface())
+	case reflect.Slice, reflect.Array:
+		n := rv.Len()
+		parts := make([]string, n)
+		for i := range n {
+			parts[i] = formatValue(rv.Index(i).Interface())
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	if s, ok := v.(fmt.Stringer); ok {
+		return s.String()
+	}
+	return fmt.Sprintf("%v", v)
 }
 
-// formatUUID formats a [16]byte UUID as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+// formatUUID formats a ClickHouse native UUID as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+// ClickHouse stores UUIDs as two little-endian uint64 halves, so the byte order
+// within each 8-byte half must be reversed before formatting.
 func formatUUID(u types.UUID) string {
-	var buf [36]byte
-	hex.Encode(buf[0:8], u[0:4])
-	buf[8] = '-'
-	hex.Encode(buf[9:13], u[4:6])
-	buf[13] = '-'
-	hex.Encode(buf[14:18], u[6:8])
-	buf[18] = '-'
-	hex.Encode(buf[19:23], u[8:10])
-	buf[23] = '-'
-	hex.Encode(buf[24:36], u[10:16])
-	return string(buf[:])
+	var b [16]byte
+	for i := range 8 {
+		b[i] = u[7-i]
+		b[8+i] = u[15-i]
+	}
+	var out [36]byte
+	hex.Encode(out[0:8], b[0:4])
+	out[8] = '-'
+	hex.Encode(out[9:13], b[4:6])
+	out[13] = '-'
+	hex.Encode(out[14:18], b[6:8])
+	out[18] = '-'
+	hex.Encode(out[19:23], b[8:10])
+	out[23] = '-'
+	hex.Encode(out[24:36], b[10:16])
+	return string(out[:])
 }
 
 // GenerateQueryID creates a unique query ID.
