@@ -67,7 +67,7 @@ func main() {
 	c, err := conn.Connect(ctx, *connStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect: %v\n", err)
-		os.Exit(1) //nolint:gocritic // generator tool, defer cleanup not needed on fatal error
+		os.Exit(1)
 	}
 	defer c.Close()
 

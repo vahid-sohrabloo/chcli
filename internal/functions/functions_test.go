@@ -63,9 +63,9 @@ func TestLookupNotFound(t *testing.T) {
 
 func TestParseVersion(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantMajor   int
-		wantMinor   int
+		input     string
+		wantMajor int
+		wantMinor int
 	}{
 		{"24.3.1", 24, 3},
 		{"25.8", 25, 8},

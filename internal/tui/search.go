@@ -52,7 +52,7 @@ func (s *SearchModel) Selected() string {
 // Update handles key events while the search overlay is active.
 // Returns a (selected, accepted) pair — accepted is true when the user pressed
 // Enter and accepted the current selection, false when the overlay was just
-// updated or was cancelled.
+// updated or was canceled.
 func (s *SearchModel) Update(msg tea.Msg) (selected string, accepted bool) {
 	kp, ok := msg.(tea.KeyPressMsg)
 	if !ok {

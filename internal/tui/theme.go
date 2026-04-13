@@ -90,12 +90,3 @@ func SetUITheme(name string) bool {
 	}
 	return false
 }
-
-// UIThemeNames returns all available UI theme names.
-func UIThemeNames() []string {
-	names := make([]string, 0, len(uiThemes))
-	for name := range uiThemes {
-		names = append(names, name)
-	}
-	return names
-}

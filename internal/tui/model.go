@@ -342,7 +342,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelQuery = nil
 			m.activeQueryID = ""
 			m.running = false
-			printCmd := m.printAbove(FormatError(errors.New("query cancelled")))
+			printCmd := m.printAbove(FormatError(errors.New("query canceled")))
 			m.tryReconnect()
 			return m, tea.Batch(printCmd, m.input.Focus())
 		}

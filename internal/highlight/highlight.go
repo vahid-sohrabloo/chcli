@@ -31,7 +31,7 @@ func NewHighlighter(themeName string) *Highlighter {
 }
 
 // Highlight tokenises input with the ClickHouse lexer and returns an
-// ANSI-coloured string. On error it returns the original input unchanged.
+// ANSI-colored string. On error it returns the original input unchanged.
 func (h *Highlighter) Highlight(input string) string {
 	it, err := chroma.Coalesce(ClickHouseLexer).Tokenise(nil, input)
 	if err != nil {
@@ -45,7 +45,7 @@ func (h *Highlighter) Highlight(input string) string {
 	return buf.String()
 }
 
-// SetTheme changes the active colour theme by name.
+// SetTheme changes the active color theme by name.
 // Falls back to monokai if the name is not found.
 func (h *Highlighter) SetTheme(name string) {
 	style := styles.Get(name)

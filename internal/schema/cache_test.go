@@ -40,10 +40,8 @@ func TestCacheRefresh(t *testing.T) {
 	if !found {
 		t.Errorf("expected 'system' database; got %v", c.Databases)
 	}
-
-	if len(c.Functions) < 1 {
-		t.Errorf("expected at least 1 function, got %d", len(c.Functions))
-	}
+	// Functions are served from embedded data (internal/functions), not loaded
+	// from system.functions — so c.Functions is intentionally empty here.
 }
 
 func TestCacheTablesForDatabase(t *testing.T) {

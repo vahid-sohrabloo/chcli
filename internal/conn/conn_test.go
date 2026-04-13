@@ -123,8 +123,10 @@ func TestDataTypes(t *testing.T) {
 			check: func(t *testing.T, val string) { assertEqual(t, val, "12345678-1234-5678-1234-567812345678") },
 		},
 		{
+			// Array(UInt8) is ambiguous with String in Go ([]byte == []uint8),
+			// so we force a wider integer type here.
 			name:  "Array",
-			query: "SELECT [1, 2, 3] AS v",
+			query: "SELECT [toInt32(1), 2, 3] AS v",
 			check: func(t *testing.T, val string) { assertEqual(t, val, "[1, 2, 3]") },
 		},
 		{
@@ -214,7 +216,7 @@ func TestQueryTruncation(t *testing.T) {
 	}
 }
 
-func TestQueryWithProgress(t *testing.T) {
+func TestQueryProgress(t *testing.T) {
 	if !clickhouseAvailable() {
 		t.Skip("CHCLI_TEST_HOST not set")
 	}
@@ -257,7 +259,7 @@ func TestMultipleQueries(t *testing.T) {
 	c := mustConnect(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		result, err := c.Query(ctx, "SELECT 1")
 		if err != nil {
 			t.Fatalf("Query %d: %v", i, err)

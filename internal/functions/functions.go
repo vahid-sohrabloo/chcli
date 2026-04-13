@@ -53,7 +53,7 @@ func ForVersion(version string) []FunctionDef {
 func Lookup(name string) *FunctionDef {
 	lower := strings.ToLower(name)
 	for i := range BuiltinFunctions {
-		if strings.ToLower(BuiltinFunctions[i].Name) == lower {
+		if strings.EqualFold(BuiltinFunctions[i].Name, lower) {
 			return &BuiltinFunctions[i]
 		}
 	}

@@ -25,7 +25,6 @@ type ColumnInfo struct {
 	DefaultKind string
 	DefaultExpr string
 	Comment     string
-	Codec       string
 }
 
 // FunctionInfo holds metadata about a ClickHouse function.
@@ -39,12 +38,12 @@ type FunctionInfo struct {
 }
 
 // Cache holds introspected ClickHouse schema metadata.
+// Function metadata is served from internal/functions (embedded), not loaded here.
 type Cache struct {
 	connStr   string // connection string for creating dedicated connections
 	Databases []string
 	Tables    map[string][]TableInfo  // db name → tables
 	Columns   map[string][]ColumnInfo // "db.table" → columns
-	Functions []FunctionInfo
 	Types     []string
 	Settings  []string
 }
@@ -63,17 +62,18 @@ type RefreshResult struct {
 	Databases int
 	Tables    int
 	Columns   int
-	Functions int
 	Types     int
 	Settings  int
 	Errors    []string
 }
 
+// HasErrors reports whether the refresh encountered any errors.
 func (r RefreshResult) HasErrors() bool { return len(r.Errors) > 0 }
 
+// Summary returns a one-line description of what was loaded.
 func (r RefreshResult) Summary() string {
-	s := fmt.Sprintf("Schema: %d databases, %d tables, %d columns, %d functions, %d types, %d settings",
-		r.Databases, r.Tables, r.Columns, r.Functions, r.Types, r.Settings)
+	s := fmt.Sprintf("Schema: %d databases, %d tables, %d columns, %d types, %d settings",
+		r.Databases, r.Tables, r.Columns, r.Types, r.Settings)
 	if len(r.Errors) > 0 {
 		s += fmt.Sprintf(" (%d errors)", len(r.Errors))
 	}

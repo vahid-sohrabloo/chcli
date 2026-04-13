@@ -432,7 +432,7 @@ func (c *Completer) FunctionSignatureDetail(name string, argIdx int) (syntax, re
 			argument = cleanMarkdown(args[len(args)-1])
 		}
 	}
-	return
+	return syntax, returnedValue, argument
 }
 
 // splitArguments splits the arguments string into individual argument descriptions.

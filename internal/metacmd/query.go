@@ -15,9 +15,6 @@ var timingEnabled bool
 // verticalEnabled tracks whether expanded (vertical) display is active.
 var verticalEnabled bool
 
-// IsTimingEnabled returns whether query timing is currently enabled.
-func IsTimingEnabled() bool { return timingEnabled }
-
 // IsVerticalEnabled returns whether vertical (expanded) display is currently enabled.
 func IsVerticalEnabled() bool { return verticalEnabled }
 

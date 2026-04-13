@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +205,8 @@ func formatValue(v any) string {
 		return "NULL"
 	}
 	switch val := v.(type) {
+	// Specific chconn types first (must come before primitive cases
+	// since types.Date = uint16, types.DateTime = uint32, etc.)
 	case types.UUID:
 		return formatUUID(val)
 	case *types.UUID:
@@ -211,10 +214,20 @@ func formatValue(v any) string {
 			return "NULL"
 		}
 		return formatUUID(*val)
+	case types.Date:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02")
+	case types.Date32:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02")
+	case types.DateTime:
+		return val.ToTime(time.UTC, 0).Format("2006-01-02 15:04:05")
+	case types.DateTime64:
+		return val.ToTime(time.UTC, 3).Format("2006-01-02 15:04:05.000")
+	case types.IPv4:
+		return val.NetIP().String()
+	case types.IPv6:
+		return val.NetIP().String()
 	case net.IP:
 		return val.String()
-	case []byte:
-		return string(val)
 	case time.Time:
 		return val.Format("2006-01-02 15:04:05")
 	case bool:
@@ -222,6 +235,10 @@ func formatValue(v any) string {
 			return "true"
 		}
 		return "false"
+	case string:
+		return val
+	case []byte:
+		return string(val)
 	case int8:
 		return strconv.FormatInt(int64(val), 10)
 	case int16:
@@ -242,36 +259,58 @@ func formatValue(v any) string {
 		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(float64(val), 'f', -1, 32), "0"), ".")
 	case float64:
 		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(val, 'f', -1, 64), "0"), ".")
-	case []any:
-		parts := make([]string, len(val))
-		for i, elem := range val {
-			parts[i] = formatValue(elem)
-		}
-		return "[" + strings.Join(parts, ", ") + "]"
 	case map[string]any:
 		pairs := make([]string, 0, len(val))
 		for k, mv := range val {
 			pairs = append(pairs, k+": "+formatValue(mv))
 		}
 		return "{" + strings.Join(pairs, ", ") + "}"
-	default:
-		return fmt.Sprintf("%v", v)
 	}
+
+	// Fallback via reflection: handles typed nil pointers, arbitrary
+	// slice types (Array(Int32), Array(String), etc.), and any type with
+	// a String() method.
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if rv.IsNil() {
+			return "NULL"
+		}
+		return formatValue(rv.Elem().Interface())
+	case reflect.Slice, reflect.Array:
+		n := rv.Len()
+		parts := make([]string, n)
+		for i := range n {
+			parts[i] = formatValue(rv.Index(i).Interface())
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	if s, ok := v.(fmt.Stringer); ok {
+		return s.String()
+	}
+	return fmt.Sprintf("%v", v)
 }
 
-// formatUUID formats a [16]byte UUID as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+// formatUUID formats a ClickHouse native UUID as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
+// ClickHouse stores UUIDs as two little-endian uint64 halves, so the byte order
+// within each 8-byte half must be reversed before formatting.
 func formatUUID(u types.UUID) string {
-	var buf [36]byte
-	hex.Encode(buf[0:8], u[0:4])
-	buf[8] = '-'
-	hex.Encode(buf[9:13], u[4:6])
-	buf[13] = '-'
-	hex.Encode(buf[14:18], u[6:8])
-	buf[18] = '-'
-	hex.Encode(buf[19:23], u[8:10])
-	buf[23] = '-'
-	hex.Encode(buf[24:36], u[10:16])
-	return string(buf[:])
+	var b [16]byte
+	for i := range 8 {
+		b[i] = u[7-i]
+		b[8+i] = u[15-i]
+	}
+	var out [36]byte
+	hex.Encode(out[0:8], b[0:4])
+	out[8] = '-'
+	hex.Encode(out[9:13], b[4:6])
+	out[13] = '-'
+	hex.Encode(out[14:18], b[6:8])
+	out[18] = '-'
+	hex.Encode(out[19:23], b[8:10])
+	out[23] = '-'
+	hex.Encode(out[24:36], b[10:16])
+	return string(out[:])
 }
 
 // GenerateQueryID creates a unique query ID.
@@ -296,113 +335,6 @@ type Progress struct {
 	DiskWrite    int64            // OSWriteBytes (cumulative)
 	Threads      int              // unique thread IDs seen
 	Metrics      map[string]int64 // all ProfileEvent metrics
-}
-
-// QueryWithProgress executes a query and sends progress updates to the channel.
-// The channel is closed when the query completes.
-func (c *Conn) QueryWithProgress(ctx context.Context, sql string, progressCh chan<- Progress) (*QueryResult, error) {
-	start := time.Now()
-
-	var cumulative Progress
-	cumulative.Metrics = make(map[string]int64)
-	threadIDs := make(map[uint64]struct{})
-
-	sendProgress := func() {
-		cumulative.Elapsed = time.Since(start)
-		cumulative.Threads = len(threadIDs)
-		select {
-		case progressCh <- cumulative:
-		default:
-		}
-	}
-
-	opts := &chconn.QueryOptions{
-		OnProgress: func(p *chconn.Progress) {
-			cumulative.ReadRows += p.ReadRows
-			cumulative.ReadBytes += p.ReadBytes
-			cumulative.TotalRows += p.TotalRows
-			cumulative.TotalBytes += p.TotalBytes
-			cumulative.WrittenRows += p.WriterRows
-			cumulative.WrittenBytes += p.WrittenBytes
-			sendProgress()
-		},
-		OnProfileEvent: func(pe *chconn.ProfileEvent) {
-			for i := range pe.Name.NumRow() {
-				name := pe.Name.Row(i)
-				val := pe.Value.Row(i)
-				evType := pe.Type.Row(i)
-				tid := pe.ThreadID.Row(i)
-
-				if tid > 0 {
-					threadIDs[tid] = struct{}{}
-				}
-
-				if evType == 2 {
-					// Gauge: use value directly (e.g., MemoryTrackerUsage).
-					cumulative.Metrics[name] = val
-				} else {
-					// Increment: accumulate.
-					cumulative.Metrics[name] += val
-				}
-
-				switch name {
-				case "MemoryTrackerUsage":
-					cumulative.MemoryUsage = val // gauge: current value
-					if val > cumulative.PeakMemory {
-						cumulative.PeakMemory = val
-					}
-				case "UserTimeMicroseconds":
-					cumulative.CPUUser = cumulative.Metrics[name]
-				case "SystemTimeMicroseconds":
-					cumulative.CPUSystem = cumulative.Metrics[name]
-				case "OSReadBytes":
-					cumulative.DiskRead = cumulative.Metrics[name]
-				case "OSWriteBytes":
-					cumulative.DiskWrite = cumulative.Metrics[name]
-				}
-			}
-			sendProgress()
-		},
-		OnProfile: func(p *chconn.Profile) {
-			sendProgress()
-		},
-	}
-
-	rows, err := c.raw.QueryWithOption(ctx, sql, opts)
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer rows.Close()
-
-	cols := rows.Columns()
-	result := &QueryResult{
-		Columns: make([]ResultColumn, len(cols)),
-	}
-	for i, col := range cols {
-		result.Columns[i] = ResultColumn{
-			Name: string(col.Name()),
-			Type: string(col.Type()),
-		}
-	}
-
-	for rows.Next() {
-		result.TotalRows++
-		if result.TotalRows <= MaxRows {
-			vals := rows.Values()
-			row := make([]string, len(vals))
-			for i, v := range vals {
-				row[i] = formatValue(v)
-			}
-			result.Rows = append(result.Rows, row)
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
-	}
-
-	result.Elapsed = time.Since(start)
-	return result, nil
 }
 
 // Exec executes a SQL statement that returns no rows.
@@ -443,9 +375,6 @@ func (c *Conn) KillQuery(queryID string) error {
 
 	return killConn.Exec(ctx, fmt.Sprintf("KILL QUERY WHERE query_id = '%s'", queryID))
 }
-
-// LastQueryID returns the query ID that will be used for the current/next query.
-// This is set during Query execution.
 
 // ServerVersion returns the ClickHouse server version string.
 func (c *Conn) ServerVersion() string {
