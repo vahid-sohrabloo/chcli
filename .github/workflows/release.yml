@@ -21,7 +21,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install goreleaser
-        run: go install github.com/goreleaser/goreleaser/v2@v2.15.2
+        run: go install github.com/goreleaser/goreleaser/v2@latest
 
       - name: Run goreleaser
         run: goreleaser release --clean --parallelism=1
