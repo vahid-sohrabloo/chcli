@@ -214,7 +214,7 @@ func TestQueryTruncation(t *testing.T) {
 	}
 }
 
-func TestQueryWithProgress(t *testing.T) {
+func TestQueryProgress(t *testing.T) {
 	if !clickhouseAvailable() {
 		t.Skip("CHCLI_TEST_HOST not set")
 	}

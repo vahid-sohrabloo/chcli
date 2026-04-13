@@ -298,113 +298,6 @@ type Progress struct {
 	Metrics      map[string]int64 // all ProfileEvent metrics
 }
 
-// QueryWithProgress executes a query and sends progress updates to the channel.
-// The channel is closed when the query completes.
-func (c *Conn) QueryWithProgress(ctx context.Context, sql string, progressCh chan<- Progress) (*QueryResult, error) {
-	start := time.Now()
-
-	var cumulative Progress
-	cumulative.Metrics = make(map[string]int64)
-	threadIDs := make(map[uint64]struct{})
-
-	sendProgress := func() {
-		cumulative.Elapsed = time.Since(start)
-		cumulative.Threads = len(threadIDs)
-		select {
-		case progressCh <- cumulative:
-		default:
-		}
-	}
-
-	opts := &chconn.QueryOptions{
-		OnProgress: func(p *chconn.Progress) {
-			cumulative.ReadRows += p.ReadRows
-			cumulative.ReadBytes += p.ReadBytes
-			cumulative.TotalRows += p.TotalRows
-			cumulative.TotalBytes += p.TotalBytes
-			cumulative.WrittenRows += p.WriterRows
-			cumulative.WrittenBytes += p.WrittenBytes
-			sendProgress()
-		},
-		OnProfileEvent: func(pe *chconn.ProfileEvent) {
-			for i := range pe.Name.NumRow() {
-				name := pe.Name.Row(i)
-				val := pe.Value.Row(i)
-				evType := pe.Type.Row(i)
-				tid := pe.ThreadID.Row(i)
-
-				if tid > 0 {
-					threadIDs[tid] = struct{}{}
-				}
-
-				if evType == 2 {
-					// Gauge: use value directly (e.g., MemoryTrackerUsage).
-					cumulative.Metrics[name] = val
-				} else {
-					// Increment: accumulate.
-					cumulative.Metrics[name] += val
-				}
-
-				switch name {
-				case "MemoryTrackerUsage":
-					cumulative.MemoryUsage = val // gauge: current value
-					if val > cumulative.PeakMemory {
-						cumulative.PeakMemory = val
-					}
-				case "UserTimeMicroseconds":
-					cumulative.CPUUser = cumulative.Metrics[name]
-				case "SystemTimeMicroseconds":
-					cumulative.CPUSystem = cumulative.Metrics[name]
-				case "OSReadBytes":
-					cumulative.DiskRead = cumulative.Metrics[name]
-				case "OSWriteBytes":
-					cumulative.DiskWrite = cumulative.Metrics[name]
-				}
-			}
-			sendProgress()
-		},
-		OnProfile: func(p *chconn.Profile) {
-			sendProgress()
-		},
-	}
-
-	rows, err := c.raw.QueryWithOption(ctx, sql, opts)
-	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer rows.Close()
-
-	cols := rows.Columns()
-	result := &QueryResult{
-		Columns: make([]ResultColumn, len(cols)),
-	}
-	for i, col := range cols {
-		result.Columns[i] = ResultColumn{
-			Name: string(col.Name()),
-			Type: string(col.Type()),
-		}
-	}
-
-	for rows.Next() {
-		result.TotalRows++
-		if result.TotalRows <= MaxRows {
-			vals := rows.Values()
-			row := make([]string, len(vals))
-			for i, v := range vals {
-				row[i] = formatValue(v)
-			}
-			result.Rows = append(result.Rows, row)
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows: %w", err)
-	}
-
-	result.Elapsed = time.Since(start)
-	return result, nil
-}
-
 // Exec executes a SQL statement that returns no rows.
 func (c *Conn) Exec(ctx context.Context, sql string) error {
 	if err := c.raw.Exec(ctx, sql); err != nil {
@@ -443,9 +336,6 @@ func (c *Conn) KillQuery(queryID string) error {
 
 	return killConn.Exec(ctx, fmt.Sprintf("KILL QUERY WHERE query_id = '%s'", queryID))
 }
-
-// LastQueryID returns the query ID that will be used for the current/next query.
-// This is set during Query execution.
 
 // ServerVersion returns the ClickHouse server version string.
 func (c *Conn) ServerVersion() string {
