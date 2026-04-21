@@ -159,11 +159,36 @@ func (t *topModel) tickCmd() tea.Cmd {
 	return tea.Tick(d, func(now time.Time) tea.Msg { return topTickMsg(now) })
 }
 
-// rememberCursorID and relockCursor are stubs until Task 12 when they're
-// needed by the cursor-by-query-id stability tests. Kept as no-ops here so
-// onSnapshot compiles and doesn't change behavior for earlier tasks.
-func (t *topModel) rememberCursorID() {}
-func (t *topModel) relockCursor()     {}
+// rememberCursorID snapshots the query_id under the cursor before a new tick
+// lands. Called from onSnapshot against the OLD visible slice.
+func (t *topModel) rememberCursorID() {
+	visible := t.visibleProcesses()
+	if t.cursor >= 0 && t.cursor < len(visible) {
+		t.cursorID = visible[t.cursor].QueryID
+	} else {
+		t.cursorID = ""
+	}
+}
+
+// relockCursor finds t.cursorID in the new visible slice and moves the cursor
+// there. If the id is gone, it clamps to the nearest previous valid index.
+func (t *topModel) relockCursor() {
+	visible := t.visibleProcesses()
+	if t.cursorID != "" {
+		for i, p := range visible {
+			if p.QueryID == t.cursorID {
+				t.cursor = i
+				return
+			}
+		}
+	}
+	if t.cursor >= len(visible) {
+		t.cursor = len(visible) - 1
+	}
+	if t.cursor < 0 {
+		t.cursor = 0
+	}
+}
 
 // Update is the bubbletea update for the topview. Returns (cmd, closed); when
 // closed is true the outer Model should nil out its topView field and return
@@ -227,6 +252,11 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	case tea.KeyRight:
 		if t.colOffset < topColumnCount-1 {
 			t.colOffset++
+		}
+	case tea.KeyEnter:
+		visible := t.visibleProcesses()
+		if len(visible) > 0 && t.cursor < len(visible) {
+			t.mode = modeDetail
 		}
 	case '/':
 		t.mode = modeFilter
@@ -297,8 +327,13 @@ func (t *topModel) handleKeyConfirmKill(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// handleKeyDetail — filled in by Task 12.
-func (t *topModel) handleKeyDetail(_ tea.KeyPressMsg) (tea.Cmd, bool) { return nil, false }
+func (t *topModel) handleKeyDetail(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch kp.Code {
+	case tea.KeyEscape, tea.KeyEnter, 'q':
+		t.mode = modeNormal
+	}
+	return nil, false
+}
 
 // setBanner stores a transient status message shown in the modal slot for
 // topBannerTTL before topBannerExpireMsg clears it.

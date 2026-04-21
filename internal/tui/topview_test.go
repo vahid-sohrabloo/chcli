@@ -217,6 +217,55 @@ func TestTopViewKillEmptyList(t *testing.T) {
 	}
 }
 
+func TestTopViewDetailEnterExit(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	seedProcs(tv, 3)
+	tv.cursor = 1
+
+	pressKey(tv, tea.KeyEnter)
+	if tv.mode != modeDetail {
+		t.Errorf("mode = %v after Enter, want modeDetail", tv.mode)
+	}
+	pressKey(tv, tea.KeyEscape)
+	if tv.mode != modeNormal {
+		t.Errorf("mode = %v after Esc, want modeNormal", tv.mode)
+	}
+}
+
+func TestTopViewCursorByQueryIDAcrossTicks(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	// Tick 1: three rows a,b,c; cursor on b.
+	tv.snap = chtop.Snapshot{Processes: []chtop.Process{
+		{QueryID: "a", Elapsed: 3},
+		{QueryID: "b", Elapsed: 2},
+		{QueryID: "c", Elapsed: 1},
+	}}
+	tv.cursor = 1
+	tv.rememberCursorID()
+	if tv.cursorID != "b" {
+		t.Fatalf("cursorID = %q, want b", tv.cursorID)
+	}
+
+	// Tick 2: a finished, rows c,b; cursor should re-lock on b.
+	tv.onSnapshot(chtop.Snapshot{Processes: []chtop.Process{
+		{QueryID: "c", Elapsed: 1.5},
+		{QueryID: "b", Elapsed: 2.5},
+	}}, chtop.Rates{})
+	visible := tv.visibleProcesses()
+	if tv.cursor >= len(visible) || visible[tv.cursor].QueryID != "b" {
+		t.Errorf("cursor %d does not point to b after re-lock (visible: %v)",
+			tv.cursor, visible)
+	}
+
+	// Tick 3: b also finishes. Cursor should clamp to nearest previous index.
+	tv.onSnapshot(chtop.Snapshot{Processes: []chtop.Process{
+		{QueryID: "c", Elapsed: 2.0},
+	}}, chtop.Rates{})
+	if tv.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (clamped)", tv.cursor)
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
