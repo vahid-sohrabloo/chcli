@@ -2,6 +2,7 @@ package chtop
 
 import (
 	"testing"
+	"time"
 
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
 )
@@ -39,6 +40,60 @@ func TestParseProcesses(t *testing.T) {
 		got.ReadRows != 1_200_000 || got.MemoryUsage != 50_331_648 ||
 		got.Query != "SELECT * FROM t" {
 		t.Fatalf("row 0 mismatch: %+v", got)
+	}
+}
+
+func TestParseHeader(t *testing.T) {
+	qr := &conn.QueryResult{
+		Columns: []conn.ResultColumn{
+			{Name: "uptime_s"}, {Name: "version"}, {Name: "active_queries"},
+			{Name: "queries_total"}, {Name: "inserted_rows_total"},
+			{Name: "mem_used"}, {Name: "mem_total"}, {Name: "q_running"},
+			{Name: "merges_running"}, {Name: "mutations_running"},
+			{Name: "replica_max_delay"},
+		},
+		Rows: [][]string{
+			{"3600", "24.8.3.5", "5", "1000000", "2500000",
+				"8589934592", "68719476736", "3", "2", "0", "0.00"},
+		},
+	}
+	h, err := parseHeader(qr)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if h.Uptime != time.Hour {
+		t.Errorf("Uptime = %v, want 1h", h.Uptime)
+	}
+	if h.Version != "24.8.3.5" || h.ActiveQueries != 5 ||
+		h.QueriesTotal != 1_000_000 || h.InsertedRowsTotal != 2_500_000 ||
+		h.MemUsed != 8_589_934_592 || h.MemTotal != 68_719_476_736 ||
+		h.QRunning != 3 || h.MergesRunning != 2 || h.MutationsRunning != 0 ||
+		h.ReplicaMaxDelay != 0.0 {
+		t.Errorf("header mismatch: %+v", h)
+	}
+}
+
+func TestParseHeaderNoReplicas(t *testing.T) {
+	qr := &conn.QueryResult{
+		Columns: make([]conn.ResultColumn, 11),
+		Rows: [][]string{
+			{"0", "", "0", "0", "0", "0", "0", "0", "0", "0", "-1"},
+		},
+	}
+	h, err := parseHeader(qr)
+	if err != nil {
+		t.Fatalf("parseHeader: %v", err)
+	}
+	if h.ReplicaMaxDelay != -1 {
+		t.Errorf("ReplicaMaxDelay = %v, want -1", h.ReplicaMaxDelay)
+	}
+}
+
+func TestParseHeaderEmpty(t *testing.T) {
+	qr := &conn.QueryResult{Columns: make([]conn.ResultColumn, 11)}
+	_, err := parseHeader(qr)
+	if err == nil {
+		t.Fatal("expected error on empty rows, got nil")
 	}
 }
 

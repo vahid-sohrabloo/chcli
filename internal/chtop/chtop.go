@@ -114,6 +114,73 @@ func parseProcesses(qr *conn.QueryResult) ([]Process, error) {
 	return out, nil
 }
 
+// parseHeader turns the single-row header-metrics QueryResult into a Header.
+// Column order must match sqlHeader. Uses parseUint64Lenient so cells that
+// chconn renders as "" (NULL) parse as 0 — the SQL uses ifNull so this is
+// defense in depth.
+func parseHeader(qr *conn.QueryResult) (Header, error) {
+	if len(qr.Rows) == 0 {
+		return Header{}, fmt.Errorf("parseHeader: no rows")
+	}
+	r := qr.Rows[0]
+	if len(r) < 11 {
+		return Header{}, fmt.Errorf("parseHeader: expected 11 columns, got %d", len(r))
+	}
+	uptimeS, err := parseUint64Lenient(r[0])
+	if err != nil {
+		return Header{}, fmt.Errorf("uptime: %w", err)
+	}
+	activeQ, err := strconv.Atoi(r[2])
+	if err != nil {
+		return Header{}, fmt.Errorf("active_queries: %w", err)
+	}
+	qTot, err := parseUint64Lenient(r[3])
+	if err != nil {
+		return Header{}, fmt.Errorf("queries_total: %w", err)
+	}
+	insRows, err := parseUint64Lenient(r[4])
+	if err != nil {
+		return Header{}, fmt.Errorf("inserted_rows_total: %w", err)
+	}
+	memUsed, err := parseUint64Lenient(r[5])
+	if err != nil {
+		return Header{}, fmt.Errorf("mem_used: %w", err)
+	}
+	memTotal, err := parseUint64Lenient(r[6])
+	if err != nil {
+		return Header{}, fmt.Errorf("mem_total: %w", err)
+	}
+	qRun, err := strconv.Atoi(r[7])
+	if err != nil {
+		return Header{}, fmt.Errorf("q_running: %w", err)
+	}
+	merges, err := strconv.Atoi(r[8])
+	if err != nil {
+		return Header{}, fmt.Errorf("merges_running: %w", err)
+	}
+	muts, err := strconv.Atoi(r[9])
+	if err != nil {
+		return Header{}, fmt.Errorf("mutations_running: %w", err)
+	}
+	replicaDelay, err := strconv.ParseFloat(r[10], 64)
+	if err != nil {
+		return Header{}, fmt.Errorf("replica_max_delay: %w", err)
+	}
+	return Header{
+		Uptime:            time.Duration(uptimeS) * time.Second,
+		Version:           r[1],
+		ActiveQueries:     activeQ,
+		QueriesTotal:      qTot,
+		InsertedRowsTotal: insRows,
+		MemUsed:           memUsed,
+		MemTotal:          memTotal,
+		QRunning:          qRun,
+		MergesRunning:     merges,
+		MutationsRunning:  muts,
+		ReplicaMaxDelay:   replicaDelay,
+	}, nil
+}
+
 // parseUint64Lenient strips thousand separators / whitespace and parses. Empty
 // string parses to 0 so "" values (which chconn's formatter can emit for
 // Nullable NULLs) don't break the header path.
