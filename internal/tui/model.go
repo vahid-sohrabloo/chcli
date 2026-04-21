@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"charm.land/bubbles/v2/spinner"
+	"github.com/vahid-sohrabloo/chcli/internal/chtop"
 	"github.com/vahid-sohrabloo/chcli/internal/completer"
 	"github.com/vahid-sohrabloo/chcli/internal/config"
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
@@ -81,6 +82,7 @@ type Model struct {
 
 	// Table viewer mode.
 	tableViewer *tableViewerModel
+	topView     *topModel
 
 	historyEntries []string // cached history queries
 	historyIdx     int      // -1 = not browsing, 0..N = browsing
@@ -154,6 +156,28 @@ func (m *Model) Init() tea.Cmd {
 
 // Update is the main message dispatch loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Top view mode: \top alt-screen — absorbs everything until closed.
+	if m.topView != nil {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			cmd, closed := m.topView.Update(msg)
+			if closed {
+				m.topView = nil
+				return m, m.input.Focus()
+			}
+			return m, cmd
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			cmd, _ := m.topView.Update(msg)
+			return m, cmd
+		case topTickMsg, topSnapshotMsg, topFetchErrMsg, topKillResultMsg, topBannerExpireMsg:
+			cmd, _ := m.topView.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	// Table viewer mode: full-screen interactive table.
 	if m.tableViewer != nil {
 		if kp, ok := msg.(tea.KeyPressMsg); ok {
@@ -608,6 +632,20 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 		return m, m.input.Focus()
 	}
 
+	// Open the \top alt-screen view.
+	if msg.result.OpenTop {
+		tv := newTopView(
+			chtop.NewFetcher(m.conn),
+			m.width, m.height,
+		).WithKiller(m.conn)
+		m.topView = tv
+		// Kick off the first tick immediately.
+		return m, tea.Batch(
+			tv.fetchCmd(),
+			tv.tickCmd(),
+		)
+	}
+
 	// If the meta-command requests a theme change, update UI + syntax.
 	if msg.result.SetTheme != "" {
 		// Try UI theme first, fall back to syntax-only.
@@ -676,6 +714,13 @@ func (m *Model) acceptCompletion() {
 func (m *Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("Goodbye.\n")
+	}
+
+	// Top view takes over the entire screen.
+	if m.topView != nil {
+		v := tea.NewView(m.topView.View())
+		v.AltScreen = true
+		return v
 	}
 
 	// Table viewer takes over the entire screen.
