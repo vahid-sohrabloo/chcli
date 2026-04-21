@@ -174,7 +174,10 @@ func (s *SearchModel) View() string {
 	}
 
 	for i := start; i < end; i++ {
-		text := truncateStr(s.results[i], 120)
+		text := collapseWhitespace(s.results[i])
+		if len(text) > 120 {
+			text = text[:119] + "…"
+		}
 		if i == s.cursor {
 			sb.WriteString(searchSelStyle.Render("> " + text))
 		} else {
@@ -184,4 +187,11 @@ func (s *SearchModel) View() string {
 	}
 
 	return sb.String()
+}
+
+// collapseWhitespace flattens a multi-line query to a single line so it fits
+// on one search-result row. Newlines, tabs, and runs of spaces collapse to a
+// single space — Enter still picks the original multi-line entry from results.
+func collapseWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
