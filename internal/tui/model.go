@@ -286,23 +286,30 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// Down arrow: completion → history.
+	// Down arrow: completion → history (when cursor is on the last line of
+	// the input, so multi-line editing still uses Down to move the cursor).
 	case msg.Code == tea.KeyDown:
 		if m.completion.Visible() {
 			m.completion.Next()
-		} else if !strings.Contains(m.input.Value(), "\n") {
-			m.browseHistory(-1)
+			return m, nil
 		}
-		return m, nil
+		if m.input.AtLastLine() {
+			m.browseHistory(-1)
+			return m, nil
+		}
+		// Fall through to textarea so Down moves the cursor.
 
-	// Up arrow: completion → history.
+	// Up arrow: completion → history (when cursor is on the first line).
 	case msg.Code == tea.KeyUp:
 		if m.completion.Visible() {
 			m.completion.Prev()
-		} else if !strings.Contains(m.input.Value(), "\n") {
-			m.browseHistory(1)
+			return m, nil
 		}
-		return m, nil
+		if m.input.AtFirstLine() {
+			m.browseHistory(1)
+			return m, nil
+		}
+		// Fall through to textarea so Up moves the cursor.
 
 	// Escape: hide completion.
 	case msg.Code == tea.KeyEscape:

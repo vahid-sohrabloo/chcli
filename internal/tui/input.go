@@ -139,6 +139,18 @@ func (m *InputModel) CursorScreenX() int {
 	return borderPadding + promptLen + m.textarea.Column()
 }
 
+// AtFirstLine reports whether the cursor is on the first line of the input.
+// Used by the outer model to decide whether Up should navigate history or
+// move the cursor within a multi-line input.
+func (m *InputModel) AtFirstLine() bool {
+	return m.textarea.Line() == 0
+}
+
+// AtLastLine reports whether the cursor is on the last line of the input.
+func (m *InputModel) AtLastLine() bool {
+	return m.textarea.Line() == strings.Count(m.textarea.Value(), "\n")
+}
+
 // ValueToCursor returns the input text from the start up to the cursor position.
 func (m *InputModel) ValueToCursor() string {
 	value := m.textarea.Value()
