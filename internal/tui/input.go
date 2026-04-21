@@ -96,10 +96,10 @@ func (m *InputModel) ReplaceWordAtCursor(prefixLen int, replacement string) {
 	targetLine := len(lines) - 1
 	targetCol := len([]rune(lines[targetLine]))
 
-	// Navigate to the correct line and column.
-	// SetValue puts cursor at end, so we need to move it.
-	// First go to start, then to target line, then to target column.
-	m.textarea.CursorStart()
+	// Navigate to the correct line and column. SetValue leaves the cursor at
+	// the end of the text; CursorStart only moves to col 0 of the current
+	// line, so we need MoveToBegin to reach (0, 0) before stepping down.
+	m.textarea.MoveToBegin()
 	for range targetLine {
 		m.textarea.CursorDown()
 	}
