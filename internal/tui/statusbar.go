@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // StatusBarModel renders the top bar and bottom hints bar.
@@ -49,12 +50,12 @@ func (m *StatusBarModel) SetLoading(l bool)         { m.loading = l }
 func (m *StatusBarModel) SetSpinnerView(s string)   { m.spinnerView = s }
 func (m *StatusBarModel) SetHintMode(h HintMode)    { m.hintMode = h }
 
-// Theme-aware style accessors using ANSI 0 (black) background for bars.
-func barBg() lipgloss.Style {
-	return lipgloss.NewStyle().Background(lipgloss.Color("0"))
-}
+// barStyle returns a foreground-only style for a status-bar element. Bars
+// don't set a background so they blend with the terminal's own bg — that
+// matches the syntax-highlighted input and the search overlay, which also
+// only set foreground colors.
 func barStyle(hex string) lipgloss.Style {
-	return barBg().Foreground(lipgloss.Color(hex))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex))
 }
 
 // TopBarView renders the top bar.
@@ -97,13 +98,12 @@ func (m *StatusBarModel) TopBarView() string {
 	rightParts = append(rightParts, barStyle(ActiveTheme.AccentBlue).Bold(true).Render(keymapLabel))
 	right := strings.Join(rightParts, " ") + " "
 
-	// Fill to width.
+	// Pad to terminal width so the right-hand side right-aligns.
 	leftWidth := lipgloss.Width(left)
 	rightWidth := lipgloss.Width(right)
 	gap := max(m.width-leftWidth-rightWidth, 0)
-	fill := barBg().Render(strings.Repeat(" ", gap))
 
-	return left + fill + right
+	return fitBarWidth(left+strings.Repeat(" ", gap)+right, m.width)
 }
 
 // HintsBarView renders the bottom hints bar.
@@ -131,9 +131,17 @@ func (m *StatusBarModel) HintsBarView() string {
 	leftWidth := lipgloss.Width(left)
 	rightWidth := lipgloss.Width(right)
 	gap := max(m.width-leftWidth-rightWidth, 0)
-	fill := barBg().Render(strings.Repeat(" ", gap))
 
-	return lipgloss.NewStyle().Render(left) + fill + lipgloss.NewStyle().Render(right)
+	return fitBarWidth(left+strings.Repeat(" ", gap)+right, m.width)
+}
+
+// fitBarWidth truncates a bar to at most width cells so it can't wrap onto a
+// second line on narrow terminals, which would leave a half-drawn row below.
+func fitBarWidth(bar string, width int) string {
+	if width <= 0 || lipgloss.Width(bar) <= width {
+		return bar
+	}
+	return ansi.Truncate(bar, width, "")
 }
 
 func hint(key, desc string) string {

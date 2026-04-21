@@ -246,8 +246,7 @@ func (m *InputModel) resizeToContent() {
 var (
 	inputBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("8")). // ANSI bright black (gray)
-			Background(lipgloss.Color("0")).       // ANSI black
+			BorderForeground(lipgloss.Color("8")).
 			Padding(0, 1)
 
 	inputPromptStyle = lipgloss.NewStyle().
@@ -312,7 +311,8 @@ func (m *InputModel) View() string {
 	// Wrap in bordered box.
 	content := sb.String()
 	lineCount := len(lines)
-	box := inputBorder.Width(m.width - 4) // account for border + padding
+	// lipgloss v2 Width() is total width including border + padding.
+	box := inputBorder.Width(m.width)
 	result := box.Render(content)
 
 	// Show line/column indicator when the input spans multiple lines.
