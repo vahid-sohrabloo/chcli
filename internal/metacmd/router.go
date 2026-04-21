@@ -19,6 +19,7 @@ type Result struct {
 	IsQuery       bool   // if true, Output contains a query to execute
 	InsertToInput bool   // if true, insert Output into the input box instead of executing or printing
 	SetTheme      string // if non-empty, switch the highlighter to this theme name
+	OpenTop       bool   // if true, outer Model should open the \top alt-screen view
 }
 
 // HandlerContext holds the shared context passed to all handlers.
@@ -119,6 +120,9 @@ func (r *Router) registerAll() {
 	r.handlers["h"] = handleHistory
 	r.handlers["hb"] = handleHistoryBookmark
 	r.handlers["hl"] = handleHistoryListBookmarks
+
+	// Live views
+	r.handlers["top"] = handleTop
 
 	// System
 	r.handlers["refresh"] = handleRefresh

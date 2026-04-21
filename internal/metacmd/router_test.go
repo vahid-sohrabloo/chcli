@@ -1,8 +1,22 @@
 package metacmd
 
 import (
+	"context"
 	"testing"
 )
+
+func TestRouterDispatchesTop(t *testing.T) {
+	r := &Router{handlers: map[string]Handler{}, hctx: &HandlerContext{}}
+	r.handlers["top"] = handleTop
+
+	res, err := r.Execute(context.Background(), `\top`)
+	if err != nil {
+		t.Fatalf("\\top returned error: %v", err)
+	}
+	if res == nil || !res.OpenTop {
+		t.Errorf("\\top should set OpenTop; got %+v", res)
+	}
+}
 
 func TestIsMetaCommand(t *testing.T) {
 	tests := []struct {
