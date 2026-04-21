@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,22 @@ import (
 
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
 )
+
+// stripANSI returns s with ANSI escape sequences removed. Tiny test helper
+// so we don't pull in a dependency.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
 
 func seedProcs(tv *topModel, n int) {
 	procs := make([]chtop.Process, n)
@@ -271,6 +288,37 @@ func TestTopViewResize(t *testing.T) {
 	tv.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	if tv.width != 120 || tv.height != 40 {
 		t.Errorf("size = %dx%d, want 120x40", tv.width, tv.height)
+	}
+}
+
+func TestTopViewHeaderContainsVersion(t *testing.T) {
+	tv := newTopView(nil, 120, 24)
+	tv.onSnapshot(chtop.Snapshot{Header: chtop.Header{
+		Uptime: time.Hour, Version: "24.8.3.5", ActiveQueries: 3,
+		MemUsed: 1 << 30, MemTotal: 1 << 33,
+		MergesRunning: 1, ReplicaMaxDelay: -1,
+	}}, chtop.Rates{QueriesPerSec: 12.5})
+
+	view := stripANSI(tv.renderHeader())
+	if !strings.Contains(view, "24.8.3.5") {
+		t.Errorf("header missing version: %q", view)
+	}
+	if !strings.Contains(view, "Q 3 running") {
+		t.Errorf("header missing active-queries line: %q", view)
+	}
+	if strings.Contains(view, "replica-lag") {
+		t.Errorf("header should elide replica line, got: %q", view)
+	}
+}
+
+func TestTopViewHeaderShowsReplicaLagWhenPositive(t *testing.T) {
+	tv := newTopView(nil, 120, 24)
+	tv.onSnapshot(chtop.Snapshot{Header: chtop.Header{
+		Version: "24.8", ReplicaMaxDelay: 0.42,
+	}}, chtop.Rates{})
+	view := stripANSI(tv.renderHeader())
+	if !strings.Contains(view, "replica-lag") {
+		t.Errorf("header missing replica-lag line: %q", view)
 	}
 }
 

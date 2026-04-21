@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
 )
@@ -404,4 +406,100 @@ func nextInterval(cur time.Duration) time.Duration {
 		}
 	}
 	return time.Second
+}
+
+// renderHeader draws the 2-3 line summary band at the top of the alt-screen.
+// Foreground-only styling — no background fills — matching the REPL look.
+func (t *topModel) renderHeader() string {
+	h := t.snap.Header
+	label := func(s string) string {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.AccentBlue)).Render(s)
+	}
+	val := func(s string) string {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextPrimary)).Render(s)
+	}
+
+	var b strings.Builder
+	// Line 1: chtop  up UPTIME  vVERSION
+	b.WriteString(label("chtop"))
+	b.WriteString("  ")
+	b.WriteString(label("up "))
+	b.WriteString(val(formatUptime(h.Uptime)))
+	if h.Version != "" {
+		b.WriteString("  ")
+		b.WriteString(val("v" + h.Version))
+	}
+	b.WriteString("\n")
+
+	// Line 2: Q N running · q/s · rows/s · mem used/total · merges
+	b.WriteString(val(fmt.Sprintf("Q %d running", h.ActiveQueries)))
+	b.WriteString(dim(" · "))
+	b.WriteString(val(fmt.Sprintf("%.1f q/s", t.rates.QueriesPerSec)))
+	b.WriteString(dim(" · "))
+	b.WriteString(val(fmt.Sprintf("%s rows/s inserts", humanCount(uint64(t.rates.InsertRowsPerSec)))))
+	b.WriteString(dim(" · "))
+	b.WriteString(val(fmt.Sprintf("mem %s/%s", humanBytes(h.MemUsed), humanBytes(h.MemTotal))))
+	b.WriteString(dim(" · "))
+	b.WriteString(val(fmt.Sprintf("merges %d", h.MergesRunning)))
+	b.WriteString("\n")
+
+	// Line 3: mutations N · replica-lag (elided when no replicas)
+	b.WriteString(val(fmt.Sprintf("mutations %d", h.MutationsRunning)))
+	if h.ReplicaMaxDelay >= 0 {
+		b.WriteString(dim(" · "))
+		b.WriteString(val(fmt.Sprintf("replica-lag max %.2fs", h.ReplicaMaxDelay)))
+	}
+
+	return b.String()
+}
+
+func dim(s string) string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextMuted)).Render(s)
+}
+
+// formatUptime renders a time.Duration as "3d 12:04:57" / "12:04:57" / "4:57".
+func formatUptime(d time.Duration) string {
+	total := int64(d.Seconds())
+	days := total / 86400
+	h := (total % 86400) / 3600
+	m := (total % 3600) / 60
+	s := total % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %02d:%02d:%02d", days, h, m, s)
+	case h > 0:
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	default:
+		return fmt.Sprintf("%d:%02d", m, s)
+	}
+}
+
+// humanBytes formats bytes as "8.3 GB" / "512 MB" / "48 kB".
+func humanBytes(n uint64) string {
+	const k = 1024
+	if n < k {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"kB", "MB", "GB", "TB", "PB"}
+	v := float64(n) / k
+	i := 0
+	for v >= k && i < len(units)-1 {
+		v /= k
+		i++
+	}
+	return fmt.Sprintf("%.1f %s", v, units[i])
+}
+
+// humanCount formats a count as "1.2M" / "3.4k" / "42".
+func humanCount(n uint64) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fG", float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
