@@ -52,6 +52,11 @@ const (
 	modeDetail
 )
 
+// topColumnCount is how many columns the process table supports. Keeping this
+// as a compile-time constant lets the column-offset clamp stay honest. The
+// actual column labels live next to the render code (Task 15).
+const topColumnCount = 10
+
 // topIntervals is the cycle applied by the 'd' key.
 var topIntervals = []time.Duration{
 	500 * time.Millisecond,
@@ -151,3 +156,84 @@ func (t *topModel) tickCmd() tea.Cmd {
 // onSnapshot compiles and doesn't change behavior for earlier tasks.
 func (t *topModel) rememberCursorID() {}
 func (t *topModel) relockCursor()     {}
+
+// Update is the bubbletea update for the topview. Returns (cmd, closed); when
+// closed is true the outer Model should nil out its topView field and return
+// focus to the REPL input.
+func (t *topModel) Update(msg tea.Msg) (tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case topTickMsg:
+		return tea.Batch(t.fetchCmd(), t.tickCmd()), false
+	case topSnapshotMsg:
+		t.onSnapshot(msg.snap, msg.rates)
+		return nil, false
+	case topFetchErrMsg:
+		t.onFetchErr(msg.err)
+		return nil, false
+	case topBannerExpireMsg:
+		if !t.bannerUntil.IsZero() && !time.Now().Before(t.bannerUntil) {
+			t.banner = ""
+			t.bannerUntil = time.Time{}
+		}
+		return nil, false
+	case tea.KeyPressMsg:
+		return t.handleKey(msg)
+	}
+	return nil, false
+}
+
+func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Modal states are handled by their own sub-handlers (filled in by the
+	// filter / kill / detail tasks).
+	switch t.mode {
+	case modeFilter:
+		return t.handleKeyFilter(kp)
+	case modeConfirmKill:
+		return t.handleKeyConfirmKill(kp)
+	case modeDetail:
+		return t.handleKeyDetail(kp)
+	}
+
+	switch kp.Code {
+	case 'q', tea.KeyEscape:
+		return nil, true
+	case tea.KeyUp:
+		if t.cursor > 0 {
+			t.cursor--
+		}
+	case tea.KeyDown:
+		if t.cursor < len(t.snap.Processes)-1 {
+			t.cursor++
+		}
+	case tea.KeyLeft:
+		if t.colOffset > 0 {
+			t.colOffset--
+		}
+	case tea.KeyRight:
+		if t.colOffset < topColumnCount-1 {
+			t.colOffset++
+		}
+	case 's':
+		t.sortCol = (t.sortCol + 1) % 3
+	case 'd':
+		t.interval = nextInterval(t.interval)
+	}
+	return nil, false
+}
+
+// Mode-specific handlers — bodies land in the filter/kill/detail tasks. They
+// exist as no-ops here so the switch above compiles.
+func (t *topModel) handleKeyFilter(_ tea.KeyPressMsg) (tea.Cmd, bool)      { return nil, false }
+func (t *topModel) handleKeyConfirmKill(_ tea.KeyPressMsg) (tea.Cmd, bool) { return nil, false }
+func (t *topModel) handleKeyDetail(_ tea.KeyPressMsg) (tea.Cmd, bool)      { return nil, false }
+
+// nextInterval cycles through topIntervals, wrapping around. Any unknown
+// current value resets to 1s.
+func nextInterval(cur time.Duration) time.Duration {
+	for i, d := range topIntervals {
+		if d == cur {
+			return topIntervals[(i+1)%len(topIntervals)]
+		}
+	}
+	return time.Second
+}
