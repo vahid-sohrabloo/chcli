@@ -190,3 +190,24 @@ func parseUint64Lenient(s string) (uint64, error) {
 	}
 	return strconv.ParseUint(s, 10, 64)
 }
+
+// deriveRates returns per-second rates across two consecutive headers.
+// Returns zero Rates when prev is nil (first tick), when dt is non-positive,
+// or when a counter appears to have reset (curr < prev, e.g. server restart).
+func deriveRates(prev *Header, curr Header, dt time.Duration) Rates {
+	if prev == nil || dt <= 0 {
+		return Rates{}
+	}
+	secs := dt.Seconds()
+	return Rates{
+		QueriesPerSec:    perSec(prev.QueriesTotal, curr.QueriesTotal, secs),
+		InsertRowsPerSec: perSec(prev.InsertedRowsTotal, curr.InsertedRowsTotal, secs),
+	}
+}
+
+func perSec(prev, curr uint64, secs float64) float64 {
+	if curr < prev {
+		return 0
+	}
+	return float64(curr-prev) / secs
+}

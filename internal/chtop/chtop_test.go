@@ -97,6 +97,44 @@ func TestParseHeaderEmpty(t *testing.T) {
 	}
 }
 
+func TestDeriveRates(t *testing.T) {
+	prev := Header{QueriesTotal: 1000, InsertedRowsTotal: 5000}
+	curr := Header{QueriesTotal: 1200, InsertedRowsTotal: 5500}
+	r := deriveRates(&prev, curr, 2*time.Second)
+	if r.QueriesPerSec != 100 {
+		t.Errorf("QueriesPerSec = %v, want 100", r.QueriesPerSec)
+	}
+	if r.InsertRowsPerSec != 250 {
+		t.Errorf("InsertRowsPerSec = %v, want 250", r.InsertRowsPerSec)
+	}
+}
+
+func TestDeriveRatesFirstTick(t *testing.T) {
+	curr := Header{QueriesTotal: 1200, InsertedRowsTotal: 5500}
+	r := deriveRates(nil, curr, time.Second)
+	if r != (Rates{}) {
+		t.Errorf("first-tick rates = %+v, want zero", r)
+	}
+}
+
+func TestDeriveRatesCounterReset(t *testing.T) {
+	prev := Header{QueriesTotal: 1000}
+	curr := Header{QueriesTotal: 10}
+	r := deriveRates(&prev, curr, time.Second)
+	if r.QueriesPerSec != 0 {
+		t.Errorf("counter-reset QueriesPerSec = %v, want 0", r.QueriesPerSec)
+	}
+}
+
+func TestDeriveRatesZeroDuration(t *testing.T) {
+	prev := Header{QueriesTotal: 1000}
+	curr := Header{QueriesTotal: 1200}
+	r := deriveRates(&prev, curr, 0)
+	if r.QueriesPerSec != 0 {
+		t.Errorf("zero-duration rate should be 0, got %v", r.QueriesPerSec)
+	}
+}
+
 func TestParseProcessesBadElapsed(t *testing.T) {
 	qr := &conn.QueryResult{
 		Columns: []conn.ResultColumn{
