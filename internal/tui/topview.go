@@ -580,6 +580,96 @@ func processCell(p chtop.Process, col int) string {
 	return ""
 }
 
+// renderFooter draws the bottom hint line.
+func (t *topModel) renderFooter() string {
+	hint := func(k, d string) string {
+		return dim(k) + " " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.TextMuted)).Render(d)
+	}
+	parts := []string{
+		hint("↑↓", "nav"),
+		hint("←→", "cols"),
+		hint("s", "sort:"+t.sortCol.String()),
+		hint("d", formatIntervalShort(t.interval)),
+		hint("/", "filter"),
+		hint("K", "kill"),
+		hint("Enter", "detail"),
+		hint("q", "quit"),
+	}
+	return "  " + strings.Join(parts, "  ")
+}
+
+func formatIntervalShort(d time.Duration) string {
+	if d == 500*time.Millisecond {
+		return "0.5s"
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+// renderModal draws the optional one-line band above the footer. Empty string
+// when no modal/banner is active.
+func (t *topModel) renderModal() string {
+	now := time.Now()
+	if t.banner != "" && now.Before(t.bannerUntil) {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.AccentYellow)).Render("  " + t.banner)
+	}
+	switch t.mode {
+	case modeFilter:
+		cursor := lipgloss.NewStyle().Reverse(true).Render(" ")
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.TextPrimary)).
+			Render("  /filter: " + t.filterBuf + cursor)
+	case modeConfirmKill:
+		who := "?"
+		for _, p := range t.snap.Processes {
+			if p.QueryID == t.killTarget {
+				who = p.User
+				break
+			}
+		}
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.AccentRed)).
+			Render(fmt.Sprintf("  Kill query %s by %s?  [y/N]",
+				shortID(t.killTarget), who))
+	}
+	return ""
+}
+
+// View composes the full alt-screen: header · sep · table-or-detail · (modal)
+// · sep · footer.
+func (t *topModel) View() string {
+	sep := dim(strings.Repeat("─", t.width))
+
+	body := t.renderTable()
+	if t.mode == modeDetail {
+		body = t.renderDetail()
+	}
+
+	parts := []string{
+		t.renderHeader(),
+		sep,
+		body,
+	}
+	if modal := t.renderModal(); modal != "" {
+		parts = append(parts, sep, modal)
+	}
+	parts = append(parts, sep, t.renderFooter())
+	return strings.Join(parts, "\n")
+}
+
+// renderDetail draws the full query of the currently-selected row.
+func (t *topModel) renderDetail() string {
+	visible := t.visibleProcesses()
+	if t.cursor >= len(visible) {
+		return dim("  (no row)")
+	}
+	p := visible[t.cursor]
+	header := fmt.Sprintf("  %s · %s · %.2fs · %s\n\n",
+		p.QueryID, p.User, p.Elapsed, humanBytes(uint64(p.MemoryUsage)))
+	return dim(header) + "  " + p.Query
+}
+
 // humanCount formats a count as "1.2M" / "3.4k" / "42".
 func humanCount(n uint64) string {
 	switch {

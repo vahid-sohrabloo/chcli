@@ -353,6 +353,55 @@ func TestTopViewTableEmptyNoQueries(t *testing.T) {
 	}
 }
 
+func TestTopViewFooterShowsCurrentSortAndInterval(t *testing.T) {
+	tv := newTopView(nil, 120, 24)
+	tv.sortCol = sortMemory
+	tv.interval = 2 * time.Second
+	view := stripANSI(tv.renderFooter())
+	if !strings.Contains(view, "sort:memory") {
+		t.Errorf("footer missing 'sort:memory': %q", view)
+	}
+	if !strings.Contains(view, "2s") {
+		t.Errorf("footer missing interval '2s': %q", view)
+	}
+}
+
+func TestTopViewModalFilter(t *testing.T) {
+	tv := newTopView(nil, 120, 24)
+	tv.mode = modeFilter
+	tv.filterBuf = "foo"
+	view := stripANSI(tv.renderModal())
+	if !strings.Contains(view, "/filter: foo") {
+		t.Errorf("modal missing filter prompt: %q", view)
+	}
+}
+
+func TestTopViewModalKillConfirm(t *testing.T) {
+	tv := newTopView(nil, 120, 24)
+	tv.mode = modeConfirmKill
+	tv.killTarget = "abc12345-xxx"
+	tv.onSnapshot(chtop.Snapshot{Processes: []chtop.Process{
+		{QueryID: "abc12345-xxx", User: "alice"},
+	}}, chtop.Rates{})
+	view := stripANSI(tv.renderModal())
+	if !strings.Contains(view, "[y/N]") {
+		t.Errorf("modal missing kill confirm: %q", view)
+	}
+}
+
+func TestTopViewTopLevelViewContainsAllBands(t *testing.T) {
+	tv := newTopView(nil, 160, 24)
+	tv.onSnapshot(chtop.Snapshot{At: time.Now(), Header: chtop.Header{Version: "24.8"},
+		Processes: []chtop.Process{{QueryID: "x", User: "alice", Query: "SELECT 1"}}},
+		chtop.Rates{})
+	view := stripANSI(tv.View())
+	for _, want := range []string{"24.8", "alice", "SELECT 1", "q quit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("View missing %q: %q", want, view)
+		}
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
