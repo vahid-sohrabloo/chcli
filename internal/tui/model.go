@@ -645,7 +645,10 @@ func (m *Model) updateCompletions() {
 }
 
 // acceptCompletion replaces the word at the cursor with the selected completion.
-// Functions get "()" appended with the cursor placed between the parens.
+// Functions get "()" appended with the cursor placed between the parens —
+// unless the text immediately after the cursor already starts with "(", in
+// which case the existing call is reused (so replacing toDate in toDate(x)
+// with toDate32 yields toDate32(x), not toDate32()(x)).
 func (m *Model) acceptCompletion() {
 	selected := m.completion.Selected()
 	kind := m.completion.SelectedKind()
@@ -656,12 +659,15 @@ func (m *Model) acceptCompletion() {
 	toCursor := m.input.ValueToCursor()
 	prefix := completer.LastWord(toCursor)
 
-	// For functions, append () and place cursor inside.
-	if kind == completer.KindFunction || kind == completer.KindAggFunction {
+	isFunc := kind == completer.KindFunction || kind == completer.KindAggFunction
+	hasExistingCall := strings.HasPrefix(m.input.Value()[len(toCursor):], "(")
+
+	switch {
+	case isFunc && !hasExistingCall:
 		m.input.ReplaceWordAtCursor(len(prefix), selected+"()")
 		// Move cursor back one position to be inside the parens.
 		m.input.MoveCursorLeft()
-	} else {
+	default:
 		m.input.ReplaceWordAtCursor(len(prefix), selected)
 	}
 }
