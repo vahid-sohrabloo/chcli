@@ -62,6 +62,7 @@ func handleHelp(_ context.Context, _ *HandlerContext, _ []string) (*Result, erro
                       Run EXPLAIN on query (or last query)
   \fmt / \format [query]
                       Format SQL query and insert into input
+  \top                Open ClickHouse top (live processes + metrics)
 
   \f   [name]         List or execute a snippet
   \fs  <name> <query> Save a snippet
