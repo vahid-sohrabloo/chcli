@@ -73,6 +73,41 @@ func NewFetcher(q Querier) *Fetcher {
 	return &Fetcher{q: q}
 }
 
+// Fetch runs the two polling SQLs, parses the rows, derives rates from the
+// previous header, and stores the new header for the next call. It returns
+// any SQL or parse error unwrapped — the caller decides how to surface it.
+func (f *Fetcher) Fetch(ctx context.Context) (Snapshot, Rates, error) {
+	now := time.Now()
+
+	procsRes, err := f.q.QueryAll(ctx, sqlProcesses)
+	if err != nil {
+		return Snapshot{}, Rates{}, fmt.Errorf("processes: %w", err)
+	}
+	procs, err := parseProcesses(procsRes)
+	if err != nil {
+		return Snapshot{}, Rates{}, fmt.Errorf("parse processes: %w", err)
+	}
+
+	hdrRes, err := f.q.QueryAll(ctx, sqlHeader)
+	if err != nil {
+		return Snapshot{}, Rates{}, fmt.Errorf("header: %w", err)
+	}
+	hdr, err := parseHeader(hdrRes)
+	if err != nil {
+		return Snapshot{}, Rates{}, fmt.Errorf("parse header: %w", err)
+	}
+
+	var rates Rates
+	if f.prev != nil {
+		rates = deriveRates(f.prev, hdr, now.Sub(f.prevAt))
+	}
+	prev := hdr
+	f.prev = &prev
+	f.prevAt = now
+
+	return Snapshot{At: now, Header: hdr, Processes: procs}, rates, nil
+}
+
 // parseProcesses turns a processes-query QueryResult into typed Process rows.
 // Column order must match sqlProcesses. Errors on malformed numeric columns
 // because silent 0-fallbacks would hide bugs in our own SQL.
