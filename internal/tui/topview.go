@@ -1,9 +1,23 @@
 package tui
 
 import (
+	"context"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
+)
+
+// Message types exchanged between the tick loop and Update.
+type (
+	topTickMsg         time.Time
+	topSnapshotMsg     struct {
+		snap  chtop.Snapshot
+		rates chtop.Rates
+	}
+	topFetchErrMsg     struct{ err error }
+	topBannerExpireMsg time.Time
 )
 
 // sortKey selects which column the process list is sorted by.
@@ -92,3 +106,48 @@ func newTopView(f *chtop.Fetcher, width, height int) *topModel {
 // WithKiller attaches a Killer. Called from the TUI code that already has
 // the Conn; tests leave it nil and set it manually.
 func (t *topModel) WithKiller(k Killer) *topModel { t.killer = k; return t }
+
+// onSnapshot is called from Update when a topSnapshotMsg arrives.
+func (t *topModel) onSnapshot(snap chtop.Snapshot, rates chtop.Rates) {
+	t.rememberCursorID()
+	t.snap = snap
+	t.rates = rates
+	t.err = nil
+	t.relockCursor()
+}
+
+// onFetchErr is called from Update when a topFetchErrMsg arrives.
+func (t *topModel) onFetchErr(err error) {
+	t.err = err
+}
+
+// fetchCmd runs Fetcher.Fetch in a tea.Cmd and converts the result into one
+// of topSnapshotMsg / topFetchErrMsg. Returns nil when the fetcher is nil
+// (useful in tests).
+func (t *topModel) fetchCmd() tea.Cmd {
+	if t.fetcher == nil {
+		return nil
+	}
+	f := t.fetcher
+	return func() tea.Msg {
+		snap, rates, err := f.Fetch(context.Background())
+		if err != nil {
+			return topFetchErrMsg{err: err}
+		}
+		return topSnapshotMsg{snap: snap, rates: rates}
+	}
+}
+
+// tickCmd schedules the next topTickMsg using the current interval. Reading
+// t.interval at schedule time means the 'd' key always takes effect on the
+// next cycle, not the current one.
+func (t *topModel) tickCmd() tea.Cmd {
+	d := t.interval
+	return tea.Tick(d, func(now time.Time) tea.Msg { return topTickMsg(now) })
+}
+
+// rememberCursorID and relockCursor are stubs until Task 12 when they're
+// needed by the cursor-by-query-id stability tests. Kept as no-ops here so
+// onSnapshot compiles and doesn't change behavior for earlier tasks.
+func (t *topModel) rememberCursorID() {}
+func (t *topModel) relockCursor()     {}
