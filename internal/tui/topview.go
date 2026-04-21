@@ -11,7 +11,21 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
+	"github.com/vahid-sohrabloo/chcli/internal/render"
 )
+
+// topColumns is the full column list in display order. The column-offset
+// window slides across [0, len-1) and the last column (query) is pinned.
+var topColumns = []string{
+	"user", "database", "client", "initial_address", "query_id",
+	"elapsed", "rows_read", "bytes_read", "memory_usage", "query",
+}
+
+func init() {
+	if len(topColumns) != topColumnCount {
+		panic("topColumns and topColumnCount are out of sync")
+	}
+}
 
 // Message types exchanged between the tick loop and Update.
 type (
@@ -488,6 +502,82 @@ func humanBytes(n uint64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f %s", v, units[i])
+}
+
+// renderTable draws the process list via the shared RenderTable helper.
+// Shows a placeholder when the first snapshot has not yet arrived or when the
+// filtered list is empty.
+func (t *topModel) renderTable() string {
+	if t.snap.At.IsZero() {
+		return dim("  connecting…")
+	}
+	visible := t.visibleProcesses()
+	if len(visible) == 0 {
+		return dim("  no active queries")
+	}
+
+	cols, colIdx := t.visibleColumns()
+	rows := make([][]string, len(visible))
+	for i, p := range visible {
+		row := make([]string, len(colIdx))
+		for j, idx := range colIdx {
+			row[j] = processCell(p, idx)
+		}
+		rows[i] = row
+	}
+	return render.RenderTable(cols, rows, t.width)
+}
+
+// visibleColumns returns the column labels and their indices in topColumns
+// for the current colOffset, pinning "query" as the last column.
+func (t *topModel) visibleColumns() ([]string, []int) {
+	const pinned = 9 // index of "query"
+	start := t.colOffset
+	if start >= pinned {
+		start = pinned - 1
+	}
+	// Take up to 4 scrollable columns plus the pinned query column.
+	end := start + 4
+	if end > pinned {
+		end = pinned
+	}
+	idx := make([]int, 0, end-start+1)
+	for i := start; i < end; i++ {
+		idx = append(idx, i)
+	}
+	idx = append(idx, pinned)
+
+	labels := make([]string, len(idx))
+	for i, k := range idx {
+		labels[i] = topColumns[k]
+	}
+	return labels, idx
+}
+
+func processCell(p chtop.Process, col int) string {
+	switch col {
+	case 0:
+		return p.User
+	case 1:
+		return p.Database
+	case 2:
+		return p.Client
+	case 3:
+		return p.InitialAddress
+	case 4:
+		return p.QueryID
+	case 5:
+		return fmt.Sprintf("%.2fs", p.Elapsed)
+	case 6:
+		return humanCount(p.ReadRows)
+	case 7:
+		return humanBytes(p.ReadBytes)
+	case 8:
+		return humanBytes(uint64(p.MemoryUsage))
+	case 9:
+		return p.Query
+	}
+	return ""
 }
 
 // humanCount formats a count as "1.2M" / "3.4k" / "42".

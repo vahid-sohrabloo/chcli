@@ -322,6 +322,37 @@ func TestTopViewHeaderShowsReplicaLagWhenPositive(t *testing.T) {
 	}
 }
 
+func TestTopViewTableIncludesQueryAndUser(t *testing.T) {
+	tv := newTopView(nil, 160, 24)
+	tv.onSnapshot(chtop.Snapshot{At: time.Now(), Processes: []chtop.Process{
+		{QueryID: "abc", User: "alice", Elapsed: 1.2, Query: "SELECT * FROM t"},
+	}}, chtop.Rates{})
+	view := stripANSI(tv.renderTable())
+	if !strings.Contains(view, "alice") {
+		t.Errorf("table missing user: %q", view)
+	}
+	if !strings.Contains(view, "SELECT * FROM t") {
+		t.Errorf("table missing query: %q", view)
+	}
+}
+
+func TestTopViewTableEmptyConnecting(t *testing.T) {
+	tv := newTopView(nil, 160, 24)
+	view := stripANSI(tv.renderTable())
+	if !strings.Contains(view, "connecting") {
+		t.Errorf("expected 'connecting…' placeholder, got: %q", view)
+	}
+}
+
+func TestTopViewTableEmptyNoQueries(t *testing.T) {
+	tv := newTopView(nil, 160, 24)
+	tv.onSnapshot(chtop.Snapshot{At: time.Now()}, chtop.Rates{})
+	view := stripANSI(tv.renderTable())
+	if !strings.Contains(view, "no active queries") {
+		t.Errorf("expected 'no active queries' placeholder, got: %q", view)
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
