@@ -110,6 +110,49 @@ func TestTopViewEscReturnsTrue(t *testing.T) {
 	}
 }
 
+func TestTopViewFilterMode(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+
+	pressKey(tv, '/')
+	if tv.mode != modeFilter {
+		t.Fatalf("mode = %v after '/', want modeFilter", tv.mode)
+	}
+
+	tv.Update(tea.KeyPressMsg{Code: 'f'})
+	tv.Update(tea.KeyPressMsg{Code: 'o'})
+	tv.Update(tea.KeyPressMsg{Code: 'o'})
+	if tv.filterBuf != "foo" {
+		t.Errorf("filterBuf = %q, want foo", tv.filterBuf)
+	}
+
+	tv.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if tv.filterBuf != "fo" {
+		t.Errorf("filterBuf = %q after BS, want fo", tv.filterBuf)
+	}
+
+	tv.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if tv.mode != modeNormal {
+		t.Errorf("mode = %v after Enter, want modeNormal", tv.mode)
+	}
+	if tv.filter != "fo" {
+		t.Errorf("filter = %q after commit, want fo", tv.filter)
+	}
+}
+
+func TestTopViewFilterEscRestoresPrior(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	tv.filter = "bar"
+	pressKey(tv, '/')
+	tv.Update(tea.KeyPressMsg{Code: 'x'})
+	tv.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if tv.mode != modeNormal {
+		t.Errorf("mode = %v after Esc, want modeNormal", tv.mode)
+	}
+	if tv.filter != "bar" {
+		t.Errorf("filter = %q after Esc, want bar", tv.filter)
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }

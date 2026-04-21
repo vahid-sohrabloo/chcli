@@ -213,6 +213,9 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 		if t.colOffset < topColumnCount-1 {
 			t.colOffset++
 		}
+	case '/':
+		t.mode = modeFilter
+		t.filterBuf = ""
 	case 's':
 		t.sortCol = (t.sortCol + 1) % 3
 	case 'd':
@@ -221,9 +224,32 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// Mode-specific handlers — bodies land in the filter/kill/detail tasks. They
-// exist as no-ops here so the switch above compiles.
-func (t *topModel) handleKeyFilter(_ tea.KeyPressMsg) (tea.Cmd, bool)      { return nil, false }
+func (t *topModel) handleKeyFilter(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch kp.Code {
+	case tea.KeyEscape:
+		t.mode = modeNormal
+		t.filterBuf = ""
+		return nil, false
+	case tea.KeyEnter:
+		t.filter = t.filterBuf
+		t.mode = modeNormal
+		t.filterBuf = ""
+		return nil, false
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(t.filterBuf) > 0 {
+			runes := []rune(t.filterBuf)
+			t.filterBuf = string(runes[:len(runes)-1])
+		}
+		return nil, false
+	}
+	// Treat any printable char as input.
+	if kp.Mod == 0 && kp.Code >= 0x20 && kp.Code != 0x7f {
+		t.filterBuf += string(kp.Code)
+	}
+	return nil, false
+}
+
+// handleKeyConfirmKill and handleKeyDetail — filled in by later tasks.
 func (t *topModel) handleKeyConfirmKill(_ tea.KeyPressMsg) (tea.Cmd, bool) { return nil, false }
 func (t *topModel) handleKeyDetail(_ tea.KeyPressMsg) (tea.Cmd, bool)      { return nil, false }
 
