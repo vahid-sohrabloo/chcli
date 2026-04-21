@@ -266,6 +266,14 @@ func TestTopViewCursorByQueryIDAcrossTicks(t *testing.T) {
 	}
 }
 
+func TestTopViewResize(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	tv.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if tv.width != 120 || tv.height != 40 {
+		t.Errorf("size = %dx%d, want 120x40", tv.width, tv.height)
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }

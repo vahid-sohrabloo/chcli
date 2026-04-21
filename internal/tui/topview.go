@@ -216,6 +216,10 @@ func (t *topModel) Update(msg tea.Msg) (tea.Cmd, bool) {
 			t.setBanner("KILL sent for " + shortID(msg.queryID))
 		}
 		return t.bannerExpireCmd(), false
+	case tea.WindowSizeMsg:
+		t.width = msg.Width
+		t.height = msg.Height
+		return nil, false
 	case tea.KeyPressMsg:
 		return t.handleKey(msg)
 	}
