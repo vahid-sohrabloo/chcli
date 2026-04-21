@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,14 +13,20 @@ import (
 
 // Message types exchanged between the tick loop and Update.
 type (
-	topTickMsg         time.Time
-	topSnapshotMsg     struct {
+	topTickMsg     time.Time
+	topSnapshotMsg struct {
 		snap  chtop.Snapshot
 		rates chtop.Rates
 	}
 	topFetchErrMsg     struct{ err error }
 	topBannerExpireMsg time.Time
+	topKillResultMsg   struct {
+		queryID string
+		err     error
+	}
 )
+
+const topBannerTTL = 3 * time.Second
 
 // sortKey selects which column the process list is sorted by.
 type sortKey int
@@ -176,6 +184,13 @@ func (t *topModel) Update(msg tea.Msg) (tea.Cmd, bool) {
 			t.bannerUntil = time.Time{}
 		}
 		return nil, false
+	case topKillResultMsg:
+		if msg.err != nil {
+			t.setBanner("KILL error: " + msg.err.Error())
+		} else {
+			t.setBanner("KILL sent for " + shortID(msg.queryID))
+		}
+		return t.bannerExpireCmd(), false
 	case tea.KeyPressMsg:
 		return t.handleKey(msg)
 	}
@@ -216,6 +231,16 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	case '/':
 		t.mode = modeFilter
 		t.filterBuf = ""
+	case 'K':
+		if len(t.snap.Processes) == 0 {
+			return nil, false
+		}
+		visible := t.visibleProcesses()
+		if t.cursor >= len(visible) {
+			return nil, false
+		}
+		t.killTarget = visible[t.cursor].QueryID
+		t.mode = modeConfirmKill
 	case 's':
 		t.sortCol = (t.sortCol + 1) % 3
 	case 'd':
@@ -249,9 +274,87 @@ func (t *topModel) handleKeyFilter(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// handleKeyConfirmKill and handleKeyDetail — filled in by later tasks.
-func (t *topModel) handleKeyConfirmKill(_ tea.KeyPressMsg) (tea.Cmd, bool) { return nil, false }
-func (t *topModel) handleKeyDetail(_ tea.KeyPressMsg) (tea.Cmd, bool)      { return nil, false }
+func (t *topModel) handleKeyConfirmKill(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch kp.Code {
+	case 'y', tea.KeyEnter:
+		target := t.killTarget
+		t.mode = modeNormal
+		t.killTarget = ""
+		if t.killer == nil || target == "" {
+			return nil, false
+		}
+		k := t.killer
+		return func() tea.Msg {
+			if err := k.KillQuery(target); err != nil {
+				return topKillResultMsg{err: err}
+			}
+			return topKillResultMsg{queryID: target}
+		}, false
+	}
+	// Any other key cancels.
+	t.mode = modeNormal
+	t.killTarget = ""
+	return nil, false
+}
+
+// handleKeyDetail — filled in by Task 12.
+func (t *topModel) handleKeyDetail(_ tea.KeyPressMsg) (tea.Cmd, bool) { return nil, false }
+
+// setBanner stores a transient status message shown in the modal slot for
+// topBannerTTL before topBannerExpireMsg clears it.
+func (t *topModel) setBanner(s string) {
+	t.banner = s
+	t.bannerUntil = time.Now().Add(topBannerTTL)
+}
+
+// bannerExpireCmd returns a tea.Cmd that fires topBannerExpireMsg once the
+// banner's TTL has elapsed.
+func (t *topModel) bannerExpireCmd() tea.Cmd {
+	return tea.Tick(topBannerTTL, func(now time.Time) tea.Msg { return topBannerExpireMsg(now) })
+}
+
+// shortID returns the first 8 chars of a query_id for compact banners.
+func shortID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8] + "…"
+}
+
+// visibleProcesses returns the sorted+filtered slice the UI currently shows.
+// Returns a fresh slice; does not mutate t.snap.Processes.
+func (t *topModel) visibleProcesses() []chtop.Process {
+	return applyFilterAndSort(t.snap.Processes, t.filter, t.sortCol)
+}
+
+func applyFilterAndSort(procs []chtop.Process, filter string, key sortKey) []chtop.Process {
+	var out []chtop.Process
+	if filter != "" {
+		needle := strings.ToLower(filter)
+		out = make([]chtop.Process, 0, len(procs))
+		for _, p := range procs {
+			if strings.Contains(strings.ToLower(p.User), needle) ||
+				strings.Contains(strings.ToLower(p.Database), needle) ||
+				strings.Contains(strings.ToLower(p.InitialAddress), needle) ||
+				strings.Contains(strings.ToLower(p.Query), needle) {
+				out = append(out, p)
+			}
+		}
+	} else {
+		out = append([]chtop.Process(nil), procs...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		switch key {
+		case sortMemory:
+			return out[i].MemoryUsage > out[j].MemoryUsage
+		case sortReadRows:
+			return out[i].ReadRows > out[j].ReadRows
+		default:
+			return out[i].Elapsed > out[j].Elapsed
+		}
+	})
+	return out
+}
 
 // nextInterval cycles through topIntervals, wrapping around. Any unknown
 // current value resets to 1s.

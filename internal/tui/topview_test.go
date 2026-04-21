@@ -153,6 +153,70 @@ func TestTopViewFilterEscRestoresPrior(t *testing.T) {
 	}
 }
 
+type fakeKiller struct {
+	called []string
+	err    error
+}
+
+func (f *fakeKiller) KillQuery(queryID string) error {
+	f.called = append(f.called, queryID)
+	return f.err
+}
+
+func TestTopViewKillConfirmY(t *testing.T) {
+	killer := &fakeKiller{}
+	tv := newTopView(nil, 80, 24)
+	tv.killer = killer
+	seedProcs(tv, 2)
+	tv.cursor = 1
+
+	pressKey(tv, 'K')
+	if tv.mode != modeConfirmKill {
+		t.Fatalf("mode = %v after K, want modeConfirmKill", tv.mode)
+	}
+	want := string(rune('a' + 1))
+	if tv.killTarget != want {
+		t.Errorf("killTarget = %q, want %q", tv.killTarget, want)
+	}
+
+	cmd, _ := pressKey(tv, 'y')
+	if tv.mode != modeNormal {
+		t.Errorf("mode = %v after y, want modeNormal", tv.mode)
+	}
+	// Drain the command to trigger the KillQuery call.
+	if cmd != nil {
+		cmd()
+	}
+	if len(killer.called) != 1 || killer.called[0] != want {
+		t.Errorf("KillQuery called with %v", killer.called)
+	}
+}
+
+func TestTopViewKillConfirmCancel(t *testing.T) {
+	killer := &fakeKiller{}
+	tv := newTopView(nil, 80, 24)
+	tv.killer = killer
+	seedProcs(tv, 2)
+	tv.cursor = 0
+
+	pressKey(tv, 'K')
+	pressKey(tv, 'n')
+	if tv.mode != modeNormal {
+		t.Errorf("mode = %v after n, want modeNormal", tv.mode)
+	}
+	if len(killer.called) != 0 {
+		t.Errorf("KillQuery should not fire on cancel, called = %v", killer.called)
+	}
+}
+
+func TestTopViewKillEmptyList(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	pressKey(tv, 'K')
+	if tv.mode != modeNormal {
+		t.Errorf("K on empty list should stay in modeNormal, got %v", tv.mode)
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
