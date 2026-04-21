@@ -291,7 +291,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.completion.Visible() {
 			m.completion.Next()
 		} else if !strings.Contains(m.input.Value(), "\n") {
-			m.browseHistory(1)
+			m.browseHistory(-1)
 		}
 		return m, nil
 
@@ -300,7 +300,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.completion.Visible() {
 			m.completion.Prev()
 		} else if !strings.Contains(m.input.Value(), "\n") {
-			m.browseHistory(-1)
+			m.browseHistory(1)
 		}
 		return m, nil
 
@@ -788,7 +788,7 @@ func (m *Model) tryReconnect() {
 }
 
 // browseHistory navigates through query history.
-// direction: -1 = older, +1 = newer.
+// Entries are stored newest-first, so +1 moves toward older, -1 toward newer.
 func (m *Model) browseHistory(direction int) {
 	// Lazy-load history entries.
 	if m.historyEntries == nil {
