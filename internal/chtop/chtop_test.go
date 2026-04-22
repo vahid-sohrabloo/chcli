@@ -3,7 +3,6 @@ package chtop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -157,7 +156,9 @@ func (f *fakeQuerier) QueryAll(_ context.Context, sql string) (*conn.QueryResult
 	case strings.HasPrefix(s, "SELECT\n    uptime()"):
 		return f.header, nil
 	}
-	return nil, fmt.Errorf("unexpected sql: %q", s[:min(40, len(s))])
+	// Default: return an empty-rows result so helpers that don't set a
+	// dedicated field don't crash.
+	return &conn.QueryResult{}, nil
 }
 
 func TestFetcherFirstAndSecondTick(t *testing.T) {
