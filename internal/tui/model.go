@@ -637,7 +637,12 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 		tv := newTopView(
 			chtop.NewFetcher(m.conn),
 			m.width, m.height,
-		).WithKiller(m.conn)
+		).WithKiller(m.conn).WithHighlighter(m.highlighter)
+		if msg.result.TopInterval != "" {
+			if d, err := time.ParseDuration(msg.result.TopInterval); err == nil {
+				tv.interval = d
+			}
+		}
 		m.topView = tv
 		// Kick off the first tick immediately.
 		return m, tea.Batch(

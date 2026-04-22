@@ -100,8 +100,8 @@ Re-run a query on an interval: `\watch 5 SELECT count() FROM events` runs every 
 Keys:
 
 - `↑` `↓` move cursor — `←` `→` scroll columns — `Enter` full query detail
-- `s` cycle sort (elapsed / memory / rows) — `d` cycle refresh (0.5s / 1s / 2s / 5s)
-- `/` filter — `K` kill selected query (with `[y/N]` confirm) — `q` / `Esc` exit
+- `s` cycle sort (elapsed / memory / rows) — `d` cycle refresh (default 2s; cycles 5s / 0.5s / 1s / 2s)
+- `/` filter — `k` kill selected query (with `[y/N]` confirm) — `q` / `Esc` exit
 
 The polling SQLs carry `SETTINGS log_queries = 0, log_query_threads = 0, log_comment = 'chcli-top'`, so `\top` doesn't pollute `system.query_log` / `system.query_thread_log`.
 

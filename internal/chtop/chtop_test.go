@@ -19,15 +19,12 @@ func TestSnapshotZeroValue(t *testing.T) {
 
 func TestParseProcesses(t *testing.T) {
 	qr := &conn.QueryResult{
-		Columns: []conn.ResultColumn{
-			{Name: "query_id"}, {Name: "user"}, {Name: "initial_address"},
-			{Name: "client"}, {Name: "database"}, {Name: "elapsed"},
-			{Name: "read_rows"}, {Name: "read_bytes"}, {Name: "memory_usage"},
-			{Name: "query"},
-		},
+		Columns: make([]conn.ResultColumn, 12),
 		Rows: [][]string{
-			{"abc-1", "alice", "10.0.0.1", "native 24.8", "default", "12.4", "1200000", "48000000", "50331648", "SELECT * FROM t"},
-			{"abc-2", "bob", "10.0.0.2", "http 1.0", "", "0.001", "0", "0", "0", "INSERT INTO s VALUES"},
+			{"abc-1", "alice", "10.0.0.1", "native 24.8", "default",
+				"12.4", "1200000", "48000000", "50331648", "3.14", "5000000", "SELECT * FROM t"},
+			{"abc-2", "bob", "10.0.0.2", "http 1.0", "",
+				"0.001", "0", "0", "0", "0", "0", "INSERT INTO s VALUES"},
 		},
 	}
 
@@ -41,6 +38,7 @@ func TestParseProcesses(t *testing.T) {
 	got := procs[0]
 	if got.QueryID != "abc-1" || got.User != "alice" || got.Elapsed != 12.4 ||
 		got.ReadRows != 1_200_000 || got.MemoryUsage != 50_331_648 ||
+		got.CPUSeconds != 3.14 || got.TotalRowsApprox != 5_000_000 ||
 		got.Query != "SELECT * FROM t" {
 		t.Fatalf("row 0 mismatch: %+v", got)
 	}
@@ -155,7 +153,7 @@ func (f *fakeQuerier) QueryAll(_ context.Context, sql string) (*conn.QueryResult
 	switch {
 	case strings.HasPrefix(s, "SELECT\n    query_id"):
 		return f.processes, nil
-	case strings.HasPrefix(s, "SELECT\n    (SELECT uptime())"):
+	case strings.HasPrefix(s, "SELECT\n    uptime()"):
 		return f.header, nil
 	}
 	return nil, fmt.Errorf("unexpected sql: %q", s[:min(40, len(s))])
@@ -164,9 +162,9 @@ func (f *fakeQuerier) QueryAll(_ context.Context, sql string) (*conn.QueryResult
 func TestFetcherFirstAndSecondTick(t *testing.T) {
 	fq := &fakeQuerier{
 		processes: &conn.QueryResult{
-			Columns: make([]conn.ResultColumn, 10),
+			Columns: make([]conn.ResultColumn, 12),
 			Rows: [][]string{
-				{"id", "u", "a", "c", "", "1.5", "100", "200", "300", "SELECT 1"},
+				{"id", "u", "a", "c", "", "1.5", "100", "200", "300", "0.5", "0", "SELECT 1"},
 			},
 		},
 		header: &conn.QueryResult{
@@ -219,14 +217,9 @@ func TestFetcherErrorPropagates(t *testing.T) {
 
 func TestParseProcessesBadElapsed(t *testing.T) {
 	qr := &conn.QueryResult{
-		Columns: []conn.ResultColumn{
-			{Name: "query_id"}, {Name: "user"}, {Name: "initial_address"},
-			{Name: "client"}, {Name: "database"}, {Name: "elapsed"},
-			{Name: "read_rows"}, {Name: "read_bytes"}, {Name: "memory_usage"},
-			{Name: "query"},
-		},
+		Columns: make([]conn.ResultColumn, 12),
 		Rows: [][]string{
-			{"id", "u", "a", "c", "d", "not-a-number", "0", "0", "0", "q"},
+			{"id", "u", "a", "c", "d", "not-a-number", "0", "0", "0", "0", "0", "q"},
 		},
 	}
 	_, err := parseProcesses(qr)

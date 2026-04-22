@@ -97,11 +97,12 @@ func TestTopViewSortCycle(t *testing.T) {
 
 func TestTopViewIntervalCycle(t *testing.T) {
 	tv := newTopView(nil, 80, 24)
+	// Starts at 2s (default).
 	want := []time.Duration{
-		2 * time.Second,
 		5 * time.Second,
 		500 * time.Millisecond,
 		time.Second,
+		2 * time.Second,
 	}
 	for i, w := range want {
 		pressKey(tv, 'd')
@@ -439,8 +440,8 @@ func TestTopViewOnFetchErrorSetsErr(t *testing.T) {
 
 func TestNewTopViewDefaults(t *testing.T) {
 	tv := newTopView(nil, 80, 24)
-	if tv.interval != time.Second {
-		t.Errorf("interval = %v, want 1s", tv.interval)
+	if tv.interval != 2*time.Second {
+		t.Errorf("interval = %v, want 2s", tv.interval)
 	}
 	if tv.sortCol != sortElapsed {
 		t.Errorf("sortCol = %v, want sortElapsed", tv.sortCol)

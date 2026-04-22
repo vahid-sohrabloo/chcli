@@ -522,6 +522,7 @@ var metaCommands = []struct{ name, desc string }{
 	{`\doc`, "Function documentation"},
 	{`\metrics`, "Show query metrics"},
 	{`\watch`, "Re-run query periodically"},
+	{`\top`, "Live ClickHouse top view (\\top [interval])"},
 	{`\explain`, "EXPLAIN query plan"},
 	{`\fmt`, "Format SQL query"},
 	{`\format`, "Format SQL query"},

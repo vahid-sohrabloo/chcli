@@ -15,6 +15,12 @@ const minReadableColWidth = 8 // minimum chars per column to be readable
 // RenderTable renders columns and rows as a pretty table that fits within maxWidth.
 // If there are too many columns to display readably, auto-switches to vertical mode.
 func RenderTable(columns []string, rows [][]string, maxWidth int) string {
+	return RenderTableSelected(columns, rows, maxWidth, -1)
+}
+
+// RenderTableSelected is RenderTable with an optional highlighted row index.
+// Pass selected = -1 to disable highlighting.
+func RenderTableSelected(columns []string, rows [][]string, maxWidth, selected int) string {
 	if maxWidth <= 0 {
 		maxWidth = 120
 	}
@@ -37,6 +43,12 @@ func RenderTable(columns []string, rows [][]string, maxWidth int) string {
 
 	oddRowStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#c0caf5")).
+		Padding(0, 1)
+
+	selectedStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#1a1b26")).
+		Background(lipgloss.Color("#7aa2f7")).
 		Padding(0, 1)
 
 	borderStyle := lipgloss.NewStyle().
@@ -97,6 +109,8 @@ func RenderTable(columns []string, rows [][]string, maxWidth int) string {
 		switch {
 		case row == table.HeaderRow:
 			return headerStyle
+		case row == selected:
+			return selectedStyle
 		case row%2 == 0:
 			return evenRowStyle
 		default:

@@ -11,14 +11,19 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
+	"github.com/vahid-sohrabloo/chcli/internal/format"
+	"github.com/vahid-sohrabloo/chcli/internal/highlight"
 	"github.com/vahid-sohrabloo/chcli/internal/render"
 )
 
-// topColumns is the full column list in display order. The column-offset
-// window slides across [0, len-1) and the last column (query) is pinned.
+// topColumns is the full column list in display order. Most-useful columns
+// come first so the default column-offset of 0 shows user/elapsed/memory/rows
+// without needing to scroll. The last column (query) is pinned as the right-
+// most visible column and always shows.
 var topColumns = []string{
-	"user", "database", "client", "initial_address", "query_id",
-	"elapsed", "rows_read", "bytes_read", "memory_usage", "query",
+	"user", "elapsed", "memory", "rows_read", "progress", "cpu",
+	"database", "client", "initial_address", "query_id", "bytes_read",
+	"query",
 }
 
 func init() {
@@ -78,8 +83,11 @@ const (
 
 // topColumnCount is how many columns the process table supports. Keeping this
 // as a compile-time constant lets the column-offset clamp stay honest. The
-// actual column labels live next to the render code (Task 15).
-const topColumnCount = 10
+// actual column labels live next to the render code (see topColumns).
+const topColumnCount = 12
+
+// sparkSize is the number of samples kept in the rolling sparkline buffers.
+const sparkSize = 30
 
 // topIntervals is the cycle applied by the 'd' key.
 var topIntervals = []time.Duration{
@@ -91,11 +99,12 @@ var topIntervals = []time.Duration{
 
 // topModel is the alt-screen bubbletea model for \top.
 type topModel struct {
-	fetcher *chtop.Fetcher
-	killer  Killer
-	snap    chtop.Snapshot
-	rates   chtop.Rates
-	err     error
+	fetcher     *chtop.Fetcher
+	killer      Killer
+	highlighter *highlight.Highlighter
+	snap        chtop.Snapshot
+	rates       chtop.Rates
+	err         error
 
 	interval  time.Duration
 	sortCol   sortKey
@@ -106,9 +115,19 @@ type topModel struct {
 
 	mode        topMode
 	filterBuf   string
-	killTarget  string
+	killTarget  string        // query_id captured at Enter to modeConfirmKill
+	killUser    string        // user captured at the same moment
+	killQuery   string        // SQL text preview for the confirm line
+	detailID    string        // query_id pinned by entering modeDetail
+	detailLast  chtop.Process // last-known snapshot, used when the query finishes
 	banner      string
 	bannerUntil time.Time
+
+	// Rolling history for header sparklines. Each ring buffer holds the
+	// last sparkSize samples; oldest value at [0] after rolling.
+	qpsHist    []float64
+	insertHist []float64
+	memHist    []float64
 
 	width, height int
 }
@@ -124,7 +143,7 @@ type Killer interface {
 func newTopView(f *chtop.Fetcher, width, height int) *topModel {
 	return &topModel{
 		fetcher:  f,
-		interval: time.Second,
+		interval: 2 * time.Second,
 		sortCol:  sortElapsed,
 		mode:     modeNormal,
 		width:    width,
@@ -136,6 +155,13 @@ func newTopView(f *chtop.Fetcher, width, height int) *topModel {
 // the Conn; tests leave it nil and set it manually.
 func (t *topModel) WithKiller(k Killer) *topModel { t.killer = k; return t }
 
+// WithHighlighter attaches a SQL syntax highlighter used by the detail pane.
+// A nil highlighter is safe — the detail pane falls back to plain text.
+func (t *topModel) WithHighlighter(h *highlight.Highlighter) *topModel {
+	t.highlighter = h
+	return t
+}
+
 // onSnapshot is called from Update when a topSnapshotMsg arrives.
 func (t *topModel) onSnapshot(snap chtop.Snapshot, rates chtop.Rates) {
 	t.rememberCursorID()
@@ -143,6 +169,51 @@ func (t *topModel) onSnapshot(snap chtop.Snapshot, rates chtop.Rates) {
 	t.rates = rates
 	t.err = nil
 	t.relockCursor()
+	t.qpsHist = pushSample(t.qpsHist, rates.QueriesPerSec)
+	t.insertHist = pushSample(t.insertHist, rates.InsertRowsPerSec)
+	t.memHist = pushSample(t.memHist, float64(snap.Header.MemUsed))
+}
+
+// pushSample appends v to buf, dropping the oldest entry when buf is full.
+func pushSample(buf []float64, v float64) []float64 {
+	if len(buf) < sparkSize {
+		return append(buf, v)
+	}
+	return append(buf[1:], v)
+}
+
+// sparkline renders a series as a one-line sparkline using the 9-level block
+// characters. Empty series returns an empty string.
+func sparkline(series []float64) string {
+	if len(series) == 0 {
+		return ""
+	}
+	blocks := []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+	minV, maxV := series[0], series[0]
+	for _, v := range series[1:] {
+		if v < minV {
+			minV = v
+		}
+		if v > maxV {
+			maxV = v
+		}
+	}
+	rangeV := maxV - minV
+	var b strings.Builder
+	for _, v := range series {
+		var idx int
+		if rangeV > 0 {
+			idx = int((v - minV) / rangeV * float64(len(blocks)-1))
+		}
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(blocks) {
+			idx = len(blocks) - 1
+		}
+		b.WriteRune(blocks[idx])
+	}
+	return b.String()
 }
 
 // onFetchErr is called from Update when a topFetchErrMsg arrives.
@@ -276,12 +347,14 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	case tea.KeyEnter:
 		visible := t.visibleProcesses()
 		if len(visible) > 0 && t.cursor < len(visible) {
+			t.detailID = visible[t.cursor].QueryID
+			t.detailLast = visible[t.cursor]
 			t.mode = modeDetail
 		}
 	case '/':
 		t.mode = modeFilter
 		t.filterBuf = ""
-	case 'K':
+	case 'k', 'K':
 		if len(t.snap.Processes) == 0 {
 			return nil, false
 		}
@@ -290,6 +363,8 @@ func (t *topModel) handleKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 		t.killTarget = visible[t.cursor].QueryID
+		t.killUser = visible[t.cursor].User
+		t.killQuery = visible[t.cursor].Query
 		t.mode = modeConfirmKill
 	case 's':
 		t.sortCol = (t.sortCol + 1) % 3
@@ -325,11 +400,15 @@ func (t *topModel) handleKeyFilter(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 }
 
 func (t *topModel) handleKeyConfirmKill(kp tea.KeyPressMsg) (tea.Cmd, bool) {
-	switch kp.Code {
-	case 'y', tea.KeyEnter:
+	// Only an explicit lowercase or uppercase 'y' confirms. Enter / Esc /
+	// anything else cancels — matches the [y/N] convention where N is the
+	// default.
+	if kp.Code == 'y' || kp.Code == 'Y' {
 		target := t.killTarget
 		t.mode = modeNormal
 		t.killTarget = ""
+		t.killUser = ""
+		t.killQuery = ""
 		if t.killer == nil || target == "" {
 			return nil, false
 		}
@@ -341,9 +420,10 @@ func (t *topModel) handleKeyConfirmKill(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 			return topKillResultMsg{queryID: target}
 		}, false
 	}
-	// Any other key cancels.
 	t.mode = modeNormal
 	t.killTarget = ""
+	t.killUser = ""
+	t.killQuery = ""
 	return nil, false
 }
 
@@ -351,6 +431,7 @@ func (t *topModel) handleKeyDetail(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch kp.Code {
 	case tea.KeyEscape, tea.KeyEnter, 'q':
 		t.mode = modeNormal
+		t.detailID = ""
 	}
 	return nil, false
 }
@@ -445,14 +526,17 @@ func (t *topModel) renderHeader() string {
 	}
 	b.WriteString("\n")
 
-	// Line 2: Q N running · q/s · rows/s · mem used/total · merges
+	// Line 2: Q N running · q/s [spark] · rows/s inserts [spark] · mem used/total [spark] · merges
 	b.WriteString(val(fmt.Sprintf("Q %d running", h.ActiveQueries)))
 	b.WriteString(dim(" · "))
-	b.WriteString(val(fmt.Sprintf("%.1f q/s", t.rates.QueriesPerSec)))
+	b.WriteString(val(fmt.Sprintf("%.1f q/s ", t.rates.QueriesPerSec)))
+	b.WriteString(dim(sparkline(t.qpsHist)))
 	b.WriteString(dim(" · "))
-	b.WriteString(val(fmt.Sprintf("%s rows/s inserts", humanCount(uint64(t.rates.InsertRowsPerSec)))))
+	b.WriteString(val(fmt.Sprintf("%s rows/s inserts ", humanCount(uint64(t.rates.InsertRowsPerSec)))))
+	b.WriteString(dim(sparkline(t.insertHist)))
 	b.WriteString(dim(" · "))
-	b.WriteString(val(fmt.Sprintf("mem %s/%s", humanBytes(h.MemUsed), humanBytes(h.MemTotal))))
+	b.WriteString(val(fmt.Sprintf("mem %s/%s ", humanBytes(h.MemUsed), humanBytes(h.MemTotal))))
+	b.WriteString(dim(sparkline(t.memHist)))
 	b.WriteString(dim(" · "))
 	b.WriteString(val(fmt.Sprintf("merges %d", h.MergesRunning)))
 	b.WriteString("\n")
@@ -509,6 +593,11 @@ func humanBytes(n uint64) string {
 // filtered list is empty.
 func (t *topModel) renderTable() string {
 	if t.snap.At.IsZero() {
+		if t.err != nil {
+			return lipgloss.NewStyle().
+				Foreground(lipgloss.Color(ActiveTheme.AccentRed)).
+				Render("  Error: " + t.err.Error())
+		}
 		return dim("  connecting…")
 	}
 	visible := t.visibleProcesses()
@@ -525,19 +614,19 @@ func (t *topModel) renderTable() string {
 		}
 		rows[i] = row
 	}
-	return render.RenderTable(cols, rows, t.width)
+	return render.RenderTableSelected(cols, rows, t.width, t.cursor)
 }
 
 // visibleColumns returns the column labels and their indices in topColumns
 // for the current colOffset, pinning "query" as the last column.
 func (t *topModel) visibleColumns() ([]string, []int) {
-	const pinned = 9 // index of "query"
+	const pinned = 11 // index of "query" in topColumns
 	start := t.colOffset
 	if start >= pinned {
 		start = pinned - 1
 	}
-	// Take up to 4 scrollable columns plus the pinned query column.
-	end := start + 4
+	// Take up to 5 scrollable columns plus the pinned query column.
+	end := start + 5
 	if end > pinned {
 		end = pinned
 	}
@@ -554,30 +643,52 @@ func (t *topModel) visibleColumns() ([]string, []int) {
 	return labels, idx
 }
 
+// processCell formats the value for column index `col` (matching the
+// topColumns order).
 func processCell(p chtop.Process, col int) string {
 	switch col {
 	case 0:
 		return p.User
 	case 1:
-		return p.Database
-	case 2:
-		return p.Client
-	case 3:
-		return p.InitialAddress
-	case 4:
-		return p.QueryID
-	case 5:
 		return fmt.Sprintf("%.2fs", p.Elapsed)
-	case 6:
-		return humanCount(p.ReadRows)
-	case 7:
-		return humanBytes(p.ReadBytes)
-	case 8:
+	case 2:
 		return humanBytes(uint64(p.MemoryUsage))
+	case 3:
+		return humanCount(p.ReadRows)
+	case 4:
+		return renderProgressBar(p.ReadRows, p.TotalRowsApprox)
+	case 5:
+		return fmt.Sprintf("%.2fs", p.CPUSeconds)
+	case 6:
+		return p.Database
+	case 7:
+		return p.Client
+	case 8:
+		return p.InitialAddress
 	case 9:
+		return p.QueryID
+	case 10:
+		return humanBytes(p.ReadBytes)
+	case 11:
 		return p.Query
 	}
 	return ""
+}
+
+// renderProgressBar returns a compact 10-cell bar + percentage for a read/total
+// pair. When total is 0 (ClickHouse doesn't know) it returns a dash.
+func renderProgressBar(read, total uint64) string {
+	if total == 0 || read > total {
+		return "—"
+	}
+	const width = 10
+	pct := float64(read) / float64(total)
+	filled := int(pct * float64(width))
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled) +
+		fmt.Sprintf(" %3.0f%%", pct*100)
 }
 
 // renderFooter draws the bottom hint line.
@@ -592,7 +703,7 @@ func (t *topModel) renderFooter() string {
 		hint("s", "sort:"+t.sortCol.String()),
 		hint("d", formatIntervalShort(t.interval)),
 		hint("/", "filter"),
-		hint("K", "kill"),
+		hint("k", "kill"),
 		hint("Enter", "detail"),
 		hint("q", "quit"),
 	}
@@ -621,17 +732,26 @@ func (t *topModel) renderModal() string {
 			Foreground(lipgloss.Color(ActiveTheme.TextPrimary)).
 			Render("  /filter: " + t.filterBuf + cursor)
 	case modeConfirmKill:
-		who := "?"
-		for _, p := range t.snap.Processes {
-			if p.QueryID == t.killTarget {
-				who = p.User
-				break
-			}
+		red := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.AccentRed)).Bold(true)
+		muted := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.TextMuted))
+		// Preview the SQL text — truncated to whatever fits after the prefix.
+		prefix := fmt.Sprintf("  Kill %s", t.killTarget)
+		if t.killUser != "" {
+			prefix += " by " + t.killUser
 		}
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color(ActiveTheme.AccentRed)).
-			Render(fmt.Sprintf("  Kill query %s by %s?  [y/N]",
-				shortID(t.killTarget), who))
+		suffix := "  [y/N]"
+		// Allow at least 20 chars for the preview on very narrow terminals.
+		budget := t.width - lipgloss.Width(prefix) - lipgloss.Width(suffix) - 4
+		if budget < 20 {
+			budget = 20
+		}
+		preview := t.killQuery
+		if len(preview) > budget {
+			preview = preview[:budget-1] + "…"
+		}
+		return red.Render(prefix) + muted.Render("  "+preview) + red.Render(suffix)
 	}
 	return ""
 }
@@ -658,16 +778,105 @@ func (t *topModel) View() string {
 	return strings.Join(parts, "\n")
 }
 
-// renderDetail draws the full query of the currently-selected row.
+// renderDetail draws the full query metadata + formatted/highlighted SQL for
+// the currently-selected row. Structure:
+//   Title row ............................... q/Esc close
+//   ────────────────────────────────────────────────────
+//     label  : value
+//     label  : value
+//     ...
+//   ────────────────────────────────────────────────────
+//     <formatted, highlighted SQL>
 func (t *topModel) renderDetail() string {
-	visible := t.visibleProcesses()
-	if t.cursor >= len(visible) {
-		return dim("  (no row)")
+	// Pin to the query_id captured at Enter. If it's still running, show live
+	// stats from the current snap; if it finished, show the last-known snapshot
+	// with a "(finished)" note so the pane doesn't drift to another query.
+	p := t.detailLast
+	finished := true
+	for i := range t.snap.Processes {
+		if t.snap.Processes[i].QueryID == t.detailID {
+			p = t.snap.Processes[i]
+			t.detailLast = p
+			finished = false
+			break
+		}
 	}
-	p := visible[t.cursor]
-	header := fmt.Sprintf("  %s · %s · %.2fs · %s\n\n",
-		p.QueryID, p.User, p.Elapsed, humanBytes(uint64(p.MemoryUsage)))
-	return dim(header) + "  " + p.Query
+
+	sep := dim(strings.Repeat("─", t.width))
+
+	// Title row with right-aligned close hint.
+	titleText := "  Query detail"
+	if finished {
+		titleText += " (finished)"
+	}
+	title := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ActiveTheme.AccentBlue)).Bold(true).
+		Render(titleText)
+	closeHint := dim("q/Esc to close  ")
+	pad := t.width - lipgloss.Width(title) - lipgloss.Width(closeHint)
+	if pad < 1 {
+		pad = 1
+	}
+
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString(strings.Repeat(" ", pad))
+	b.WriteString(closeHint)
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
+
+	// Labeled metadata block with right-aligned labels.
+	labels := []string{
+		"query_id", "user", "database", "client", "initial_address",
+		"elapsed", "cpu", "memory_usage", "read_rows", "read_bytes",
+	}
+	values := []string{
+		p.QueryID, p.User, p.Database, p.Client, p.InitialAddress,
+		fmt.Sprintf("%.2fs", p.Elapsed),
+		fmt.Sprintf("%.2fs", p.CPUSeconds),
+		humanBytes(uint64(p.MemoryUsage)),
+		humanCount(p.ReadRows),
+		humanBytes(p.ReadBytes),
+	}
+	b.WriteString(renderKVBlock(labels, values))
+	b.WriteString(sep)
+	b.WriteString("\n\n")
+
+	// Formatted + highlighted SQL, indented.
+	sql := format.FormatSQL(p.Query)
+	if t.highlighter != nil {
+		sql = t.highlighter.Highlight(sql)
+	}
+	b.WriteString("  ")
+	b.WriteString(strings.ReplaceAll(sql, "\n", "\n  "))
+
+	return b.String()
+}
+
+// renderKVBlock renders a labeled key : value list with right-aligned labels
+// matching the existing vertical-query mode's look.
+func renderKVBlock(labels, values []string) string {
+	maxLabel := 0
+	for _, l := range labels {
+		if w := lipgloss.Width(l); w > maxLabel {
+			maxLabel = w
+		}
+	}
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ActiveTheme.AccentBlue)).Bold(true)
+	valStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ActiveTheme.TextPrimary))
+
+	var b strings.Builder
+	for i, l := range labels {
+		b.WriteString("  ")
+		b.WriteString(labelStyle.Render(fmt.Sprintf("%*s", maxLabel, l)))
+		b.WriteString(" : ")
+		b.WriteString(valStyle.Render(values[i]))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // humanCount formats a count as "1.2M" / "3.4k" / "42".

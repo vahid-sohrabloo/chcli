@@ -43,16 +43,18 @@ type Header struct {
 
 // Process is one row from system.processes.
 type Process struct {
-	QueryID        string
-	User           string
-	InitialAddress string
-	Client         string
-	Database       string
-	Elapsed        float64 // seconds
-	ReadRows       uint64
-	ReadBytes      uint64
-	MemoryUsage    int64
-	Query          string // pre-collapsed to a single line
+	QueryID         string
+	User            string
+	InitialAddress  string
+	Client          string
+	Database        string
+	Elapsed         float64 // seconds
+	ReadRows        uint64
+	ReadBytes       uint64
+	MemoryUsage     int64
+	CPUSeconds      float64 // OSCPUVirtualTimeMicroseconds / 1e6
+	TotalRowsApprox uint64  // ClickHouse's estimate; 0 when unknown
+	Query           string  // pre-collapsed to a single line
 }
 
 // Rates are per-second derivatives computed client-side from two Headers.
@@ -114,8 +116,8 @@ func (f *Fetcher) Fetch(ctx context.Context) (Snapshot, Rates, error) {
 func parseProcesses(qr *conn.QueryResult) ([]Process, error) {
 	out := make([]Process, 0, len(qr.Rows))
 	for i, row := range qr.Rows {
-		if len(row) < 10 {
-			return nil, fmt.Errorf("row %d: expected 10 columns, got %d", i, len(row))
+		if len(row) < 12 {
+			return nil, fmt.Errorf("row %d: expected 12 columns, got %d", i, len(row))
 		}
 		elapsed, err := strconv.ParseFloat(row[5], 64)
 		if err != nil {
@@ -133,17 +135,32 @@ func parseProcesses(qr *conn.QueryResult) ([]Process, error) {
 		if err != nil {
 			return nil, fmt.Errorf("row %d memory_usage: %w", i, err)
 		}
+		// Empty string = NULL (chconn's formatter renders NULL as ""); treat
+		// as 0 since new queries may not have accumulated ProfileEvents yet.
+		cpu := 0.0
+		if row[9] != "" {
+			cpu, err = strconv.ParseFloat(row[9], 64)
+			if err != nil {
+				return nil, fmt.Errorf("row %d cpu_seconds: %w", i, err)
+			}
+		}
+		totalRows, err := parseUint64Lenient(row[10])
+		if err != nil {
+			return nil, fmt.Errorf("row %d total_rows_approx: %w", i, err)
+		}
 		out = append(out, Process{
-			QueryID:        row[0],
-			User:           row[1],
-			InitialAddress: row[2],
-			Client:         row[3],
-			Database:       row[4],
-			Elapsed:        elapsed,
-			ReadRows:       readRows,
-			ReadBytes:      readBytes,
-			MemoryUsage:    mem,
-			Query:          row[9],
+			QueryID:         row[0],
+			User:            row[1],
+			InitialAddress:  row[2],
+			Client:          row[3],
+			Database:        row[4],
+			Elapsed:         elapsed,
+			ReadRows:        readRows,
+			ReadBytes:       readBytes,
+			MemoryUsage:     mem,
+			CPUSeconds:      cpu,
+			TotalRowsApprox: totalRows,
+			Query:           row[11],
 		})
 	}
 	return out, nil
@@ -197,9 +214,14 @@ func parseHeader(qr *conn.QueryResult) (Header, error) {
 	if err != nil {
 		return Header{}, fmt.Errorf("mutations_running: %w", err)
 	}
-	replicaDelay, err := strconv.ParseFloat(r[10], 64)
-	if err != nil {
-		return Header{}, fmt.Errorf("replica_max_delay: %w", err)
+	// Empty string = NULL from chconn's formatter, which maps to the
+	// "no replicated tables" sentinel.
+	replicaDelay := -1.0
+	if r[10] != "" {
+		replicaDelay, err = strconv.ParseFloat(r[10], 64)
+		if err != nil {
+			return Header{}, fmt.Errorf("replica_max_delay: %w", err)
+		}
 	}
 	return Header{
 		Uptime:            time.Duration(uptimeS) * time.Second,
