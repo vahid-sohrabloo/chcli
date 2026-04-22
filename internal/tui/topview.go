@@ -76,10 +76,18 @@ func (s sortKey) String() string {
 type topMode int
 
 const (
-	modeNormal topMode = iota
-	modeFilter
-	modeConfirmKill
-	modeDetail
+	ModeNormal topMode = iota
+	ModeFilter
+	ModeConfirmKill
+	ModeDetail
+)
+
+// Internal aliases so the existing package-private switches stay readable.
+const (
+	modeNormal      = ModeNormal
+	modeFilter      = ModeFilter
+	modeConfirmKill = ModeConfirmKill
+	modeDetail      = ModeDetail
 )
 
 // topColumnCount is how many columns the process table supports. Keeping this
@@ -277,6 +285,22 @@ func (t *topModel) relockCursor() {
 		t.cursor = 0
 	}
 }
+
+// SetSize updates width/height without requiring a WindowSizeMsg. Used by
+// the monitor container that resizes tabs directly.
+func (t *topModel) SetSize(w, h int) {
+	t.width = w
+	t.height = h
+}
+
+// Mode returns the current modal state. Used by the monitor's Processes tab
+// adapter to implement HasActiveModal().
+func (t *topModel) Mode() topMode { return t.mode }
+
+// FetchCmd / TickCmd are the exported forms of fetchCmd / tickCmd so the
+// monitor's Processes adapter can fire them on tab activation.
+func (t *topModel) FetchCmd() tea.Cmd { return t.fetchCmd() }
+func (t *topModel) TickCmd() tea.Cmd  { return t.tickCmd() }
 
 // Update is the bubbletea update for the topview. Returns (cmd, closed); when
 // closed is true the outer Model should nil out its topView field and return
