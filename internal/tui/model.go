@@ -636,6 +636,7 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 		}
 		tabs := []monitor.Tab{
 			monitor.NewProcessesTab(tv),
+			monitor.NewMergesTab(m.conn),
 		}
 		mon := monitor.NewModel(tabs, 0, m.width, m.height)
 		m.monitorView = mon
