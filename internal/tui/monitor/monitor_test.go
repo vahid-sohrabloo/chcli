@@ -129,4 +129,69 @@ func TestCycleBackwardWithShiftTab(t *testing.T) {
 	}
 }
 
+func TestQuitClosesMonitorWhenNoModal(t *testing.T) {
+	a := &fakeTab{}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	press(m, 'q', 0)
+	if !m.closed {
+		t.Error("expected closed = true after 'q'")
+	}
+}
+
+func TestEscClosesMonitorWhenNoModal(t *testing.T) {
+	a := &fakeTab{}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	press(m, tea.KeyEscape, 0)
+	if !m.closed {
+		t.Error("expected closed = true after Esc")
+	}
+}
+
+func TestEscForwardedToTabWhenModalActive(t *testing.T) {
+	a := &fakeTab{modal: true}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	press(m, tea.KeyEscape, 0)
+	if m.closed {
+		t.Error("modal active; Esc should forward to tab, not close the monitor")
+	}
+	if a.updateCalls != 1 {
+		t.Errorf("tab.Update calls = %d, want 1", a.updateCalls)
+	}
+}
+
+func TestQuestionMarkTogglesHelp(t *testing.T) {
+	a := &fakeTab{}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	press(m, '?', 0)
+	if !m.helpVisible {
+		t.Error("expected helpVisible = true after first '?'")
+	}
+	press(m, '?', 0)
+	if m.helpVisible {
+		t.Error("expected helpVisible = false after second '?'")
+	}
+}
+
+func TestAnyKeyClosesHelpOverlay(t *testing.T) {
+	a := &fakeTab{}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	m.helpVisible = true
+	press(m, 'x', 0)
+	if m.helpVisible {
+		t.Error("any key should close help overlay")
+	}
+	if a.updateCalls != 0 {
+		t.Errorf("tab.Update calls = %d, want 0 (key consumed by help-close)", a.updateCalls)
+	}
+}
+
+func TestClosedGetter(t *testing.T) {
+	a := &fakeTab{}
+	m := NewModel([]tab{a}, 0, 80, 24)
+	press(m, 'q', 0)
+	if !m.Closed() {
+		t.Error("Closed() should return true")
+	}
+}
+
 var _ = time.Second

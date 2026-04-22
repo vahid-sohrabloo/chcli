@@ -34,8 +34,13 @@ type Model struct {
 	width, height int
 
 	helpVisible bool
+	closed      bool
 	lastActive  []time.Time // last time each tab was visited
 }
+
+// Closed reports whether the user has asked to exit the monitor. The outer
+// Model should observe this and drop the view.
+func (m *Model) Closed() bool { return m.closed }
 
 // NewModel constructs a Model with the given tabs; startIndex is clamped
 // into [0, len(tabs)-1]. Width/height set initial size (can be overridden
@@ -75,6 +80,12 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Help overlay: any key closes it. Consumed; does not forward.
+	if m.helpVisible {
+		m.helpVisible = false
+		return nil, true
+	}
+
 	// Number keys 1..9 jump to that tab (1-indexed).
 	if kp.Code >= '1' && kp.Code <= '9' && kp.Mod == 0 {
 		idx := int(kp.Code - '1')
@@ -83,12 +94,26 @@ func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	}
+
 	switch kp.Code {
 	case tea.KeyTab:
 		if kp.Mod == tea.ModShift {
 			return m.switchTo((m.activeTab - 1 + len(m.tabs)) % len(m.tabs)), true
 		}
 		return m.switchTo((m.activeTab + 1) % len(m.tabs)), true
+
+	case '?':
+		m.helpVisible = true
+		return nil, true
+
+	case 'q', tea.KeyEscape:
+		// Modal-aware: if the active tab has a modal open, forward so it can
+		// cancel. Only close the monitor when no modal is active.
+		if m.tabs[m.activeTab].HasActiveModal() {
+			return nil, false
+		}
+		m.closed = true
+		return nil, true
 	}
 	return nil, false
 }
