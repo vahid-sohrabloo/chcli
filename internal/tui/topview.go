@@ -297,6 +297,11 @@ func (t *topModel) SetSize(w, h int) {
 // adapter to implement HasActiveModal().
 func (t *topModel) Mode() topMode { return t.mode }
 
+// InModal is a boolean-typed alias of Mode() != ModeNormal. The monitor
+// package's TopModelAPI interface uses this name so it doesn't depend on
+// the topMode enum type.
+func (t *topModel) InModal() bool { return t.mode != ModeNormal }
+
 // FetchCmd / TickCmd are the exported forms of fetchCmd / tickCmd so the
 // monitor's Processes adapter can fire them on tab activation.
 func (t *topModel) FetchCmd() tea.Cmd { return t.fetchCmd() }

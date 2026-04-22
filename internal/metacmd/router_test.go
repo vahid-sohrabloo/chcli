@@ -13,11 +13,30 @@ func TestRouterDispatchesTop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("\\top returned error: %v", err)
 	}
-	if res == nil || !res.OpenTop {
-		t.Errorf("\\top should set OpenTop; got %+v", res)
+	if res == nil || !res.OpenMonitor {
+		t.Errorf("\\top should set OpenMonitor; got %+v", res)
+	}
+	if res.ActiveTab != "processes" {
+		t.Errorf("\\top ActiveTab = %q, want processes", res.ActiveTab)
 	}
 	if res.TopInterval != "" {
 		t.Errorf("\\top without arg should leave TopInterval empty, got %q", res.TopInterval)
+	}
+}
+
+func TestRouterDispatchesMonitor(t *testing.T) {
+	r := &Router{handlers: map[string]Handler{}, hctx: &HandlerContext{}}
+	r.handlers["monitor"] = handleMonitor
+
+	res, err := r.Execute(context.Background(), `\monitor`)
+	if err != nil {
+		t.Fatalf("\\monitor returned error: %v", err)
+	}
+	if res == nil || !res.OpenMonitor {
+		t.Errorf("\\monitor should set OpenMonitor; got %+v", res)
+	}
+	if res.ActiveTab != "" {
+		t.Errorf("ActiveTab = %q, want empty for \\monitor", res.ActiveTab)
 	}
 }
 

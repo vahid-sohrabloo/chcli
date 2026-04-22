@@ -2,21 +2,31 @@ package monitor
 
 import (
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/vahid-sohrabloo/chcli/internal/tui"
 )
 
-// processesTab wraps internal/tui.topModel so it can live as a tab inside
-// the monitor. The inner model is unmodified; the wrapper just satisfies
-// the `tab` interface and routes calls through.
+// TopModelAPI is the minimal interface the Processes tab needs from the
+// underlying \top model. Defined as an interface here so this package
+// doesn't have to import internal/tui (which would create a cycle).
+type TopModelAPI interface {
+	FetchCmd() tea.Cmd
+	TickCmd() tea.Cmd
+	Update(msg tea.Msg) (tea.Cmd, bool)
+	View() string
+	SetSize(w, h int)
+	// InModal reports whether the \top model is currently inside a
+	// filter / kill-confirm / detail modal. Used for modal-aware q/Esc
+	// routing at the container level.
+	InModal() bool
+}
+
+// processesTab wraps a \top model so it can live as a tab inside the monitor.
 type processesTab struct {
-	m *tui.TopModel
+	m TopModelAPI
 }
 
 // NewProcessesTab builds a Processes tab around an already-constructed
-// topModel. The caller owns the inner model's lifetime (so things like
-// highlighter / Killer can be set before wrapping).
-func NewProcessesTab(m *tui.TopModel) tab {
+// \top model. The caller owns the inner model's lifetime.
+func NewProcessesTab(m TopModelAPI) Tab {
 	return &processesTab{m: m}
 }
 
@@ -58,5 +68,5 @@ func (p *processesTab) HelpKeys() []keyHint {
 }
 
 func (p *processesTab) HasActiveModal() bool {
-	return p.m != nil && p.m.Mode() != tui.ModeNormal
+	return p.m != nil && p.m.InModal()
 }

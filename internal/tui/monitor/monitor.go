@@ -16,7 +16,7 @@ type keyHint struct {
 }
 
 // tab is the contract every tab in the monitor implements.
-type tab interface {
+type Tab interface {
 	Init() tea.Cmd
 	Update(msg tea.Msg) tea.Cmd
 	View(width, height int) string
@@ -27,7 +27,7 @@ type tab interface {
 
 // Model is the alt-screen container for the \monitor view.
 type Model struct {
-	tabs      []tab
+	tabs      []Tab
 	activeTab int
 	initDone  []bool // one entry per tab; true after the first Init()
 
@@ -45,7 +45,7 @@ func (m *Model) Closed() bool { return m.closed }
 // NewModel constructs a Model with the given tabs; startIndex is clamped
 // into [0, len(tabs)-1]. Width/height set initial size (can be overridden
 // by a later WindowSizeMsg).
-func NewModel(tabs []tab, startIndex, width, height int) *Model {
+func NewModel(tabs []Tab, startIndex, width, height int) *Model {
 	if startIndex < 0 || startIndex >= len(tabs) {
 		startIndex = 0
 	}
@@ -147,10 +147,7 @@ func (m *Model) View() string {
 	}
 
 	// Content area = everything below the title + tab bar + a one-row gap.
-	contentHeight := m.height - 3
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	contentHeight := max(m.height-3, 1)
 	body := m.tabs[m.activeTab].View(m.width, contentHeight)
 	return title + "\n" + bar + "\n" + body
 }

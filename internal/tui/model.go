@@ -23,6 +23,7 @@ import (
 	"github.com/vahid-sohrabloo/chcli/internal/history"
 	"github.com/vahid-sohrabloo/chcli/internal/metacmd"
 	"github.com/vahid-sohrabloo/chcli/internal/schema"
+	"github.com/vahid-sohrabloo/chcli/internal/tui/monitor"
 )
 
 // queryResultMsg carries the result (or error) of an async SQL query.
@@ -82,7 +83,7 @@ type Model struct {
 
 	// Table viewer mode.
 	tableViewer *tableViewerModel
-	topView     *topModel
+	monitorView *monitor.Model
 
 	historyEntries []string // cached history queries
 	historyIdx     int      // -1 = not browsing, 0..N = browsing
@@ -156,26 +157,15 @@ func (m *Model) Init() tea.Cmd {
 
 // Update is the main message dispatch loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Top view mode: \top alt-screen — absorbs everything until closed.
-	if m.topView != nil {
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			cmd, closed := m.topView.Update(msg)
-			if closed {
-				m.topView = nil
-				return m, m.input.Focus()
-			}
-			return m, cmd
-		case tea.WindowSizeMsg:
-			m.width = msg.Width
-			m.height = msg.Height
-			cmd, _ := m.topView.Update(msg)
-			return m, cmd
-		case topTickMsg, topSnapshotMsg, topFetchErrMsg, topKillResultMsg, topBannerExpireMsg:
-			cmd, _ := m.topView.Update(msg)
-			return m, cmd
+	// Monitor mode: \monitor (alias \top) — absorbs everything until closed.
+	if m.monitorView != nil {
+		mon, cmd := m.monitorView.Update(msg)
+		m.monitorView = mon
+		if mon.Closed() {
+			m.monitorView = nil
+			return m, tea.Batch(cmd, m.input.Focus())
 		}
-		return m, nil
+		return m, cmd
 	}
 
 	// Table viewer mode: full-screen interactive table.
@@ -632,8 +622,9 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 		return m, m.input.Focus()
 	}
 
-	// Open the \top alt-screen view.
-	if msg.result.OpenTop {
+	// Open the \monitor alt-screen view. \top arrives here with ActiveTab
+	// == "processes"; \monitor with "" (default — same first tab for v1).
+	if msg.result.OpenMonitor {
 		tv := newTopView(
 			chtop.NewFetcher(m.conn),
 			m.width, m.height,
@@ -643,12 +634,12 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 				tv.interval = d
 			}
 		}
-		m.topView = tv
-		// Kick off the first tick immediately.
-		return m, tea.Batch(
-			tv.fetchCmd(),
-			tv.tickCmd(),
-		)
+		tabs := []monitor.Tab{
+			monitor.NewProcessesTab(tv),
+		}
+		mon := monitor.NewModel(tabs, 0, m.width, m.height)
+		m.monitorView = mon
+		return m, mon.Init()
 	}
 
 	// If the meta-command requests a theme change, update UI + syntax.
@@ -721,10 +712,11 @@ func (m *Model) View() tea.View {
 		return tea.NewView("Goodbye.\n")
 	}
 
-	// Top view takes over the entire screen.
-	if m.topView != nil {
-		v := tea.NewView(m.topView.View())
+	// Monitor takes over the entire screen.
+	if m.monitorView != nil {
+		v := tea.NewView(m.monitorView.View())
 		v.AltScreen = true
+		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
 

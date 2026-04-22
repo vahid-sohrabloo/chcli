@@ -5,14 +5,14 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/vahid-sohrabloo/chcli/internal/tui"
+	"github.com/vahid-sohrabloo/chcli/internal/uitheme"
 )
 
 // renderTabBar draws the single-row bar of tab cells. The active tab has an
 // inverse style (AccentBlue background, BgDark foreground). Inactive tabs
 // are TextMuted.
 func (m *Model) renderTabBar() string {
-	theme := tui.ActiveTheme
+	theme := uitheme.Active
 	activeStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.BgDark)).
 		Background(lipgloss.Color(theme.AccentBlue)).
@@ -46,21 +46,18 @@ func runeDigit(n int) string {
 
 // renderTitleRow shows the tool name + a right-aligned help hint.
 func (m *Model) renderTitleRow() string {
-	theme := tui.ActiveTheme
+	theme := uitheme.Active
 	name := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.AccentBlue)).Bold(true).Render("chmon")
 	hint := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextMuted)).Render("? help · q quit")
-	pad := m.width - lipgloss.Width(name) - lipgloss.Width(hint) - 2
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(m.width-lipgloss.Width(name)-lipgloss.Width(hint)-2, 1)
 	return " " + name + strings.Repeat(" ", pad) + hint
 }
 
 // renderHelpOverlay draws a centered modal with global + active-tab keys.
 func (m *Model) renderHelpOverlay() string {
-	theme := tui.ActiveTheme
+	theme := uitheme.Active
 	keyStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.AccentBlue)).Bold(true)
 	descStyle := lipgloss.NewStyle().

@@ -31,7 +31,7 @@ func TestKeyHintZeroValue(t *testing.T) {
 
 func TestNewModelDefaults(t *testing.T) {
 	a, b := &fakeTab{title: "A"}, &fakeTab{title: "B"}
-	m := NewModel([]tab{a, b}, 0, 80, 24)
+	m := NewModel([]Tab{a, b}, 0, 80, 24)
 	if m.width != 80 || m.height != 24 {
 		t.Errorf("size = %dx%d, want 80x24", m.width, m.height)
 	}
@@ -45,7 +45,7 @@ func TestNewModelDefaults(t *testing.T) {
 
 func TestNewModelRespectsStartIndex(t *testing.T) {
 	a, b := &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b}, 1, 80, 24)
+	m := NewModel([]Tab{a, b}, 1, 80, 24)
 	if m.activeTab != 1 {
 		t.Errorf("activeTab = %d, want 1", m.activeTab)
 	}
@@ -53,7 +53,7 @@ func TestNewModelRespectsStartIndex(t *testing.T) {
 
 func TestNewModelClampsStartIndex(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 5, 80, 24)
+	m := NewModel([]Tab{a}, 5, 80, 24)
 	if m.activeTab != 0 {
 		t.Errorf("activeTab = %d, want 0 (clamped)", m.activeTab)
 	}
@@ -61,7 +61,7 @@ func TestNewModelClampsStartIndex(t *testing.T) {
 
 func TestInitCallsActiveTabInit(t *testing.T) {
 	a, b := &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b}, 1, 80, 24)
+	m := NewModel([]Tab{a, b}, 1, 80, 24)
 	m.Init()
 	if a.initCalls != 0 {
 		t.Errorf("inactive tab Init calls = %d, want 0", a.initCalls)
@@ -78,7 +78,7 @@ func press(m *Model, code rune, mod tea.KeyMod) tea.Cmd {
 
 func TestSwitchTabsByNumberKeys(t *testing.T) {
 	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+	m := NewModel([]Tab{a, b, c}, 0, 80, 24)
 
 	press(m, '2', 0)
 	if m.activeTab != 1 {
@@ -99,7 +99,7 @@ func TestSwitchTabsByNumberKeys(t *testing.T) {
 
 func TestSwitchTabsIgnoresOutOfRangeNumberKeys(t *testing.T) {
 	a, b := &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b}, 0, 80, 24)
+	m := NewModel([]Tab{a, b}, 0, 80, 24)
 	press(m, '3', 0)
 	if m.activeTab != 0 {
 		t.Errorf("after '3' with 2 tabs: activeTab = %d, want 0 (no-op)", m.activeTab)
@@ -108,7 +108,7 @@ func TestSwitchTabsIgnoresOutOfRangeNumberKeys(t *testing.T) {
 
 func TestCycleForwardWithTab(t *testing.T) {
 	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+	m := NewModel([]Tab{a, b, c}, 0, 80, 24)
 	press(m, tea.KeyTab, 0)
 	if m.activeTab != 1 {
 		t.Errorf("after Tab: activeTab = %d, want 1", m.activeTab)
@@ -122,7 +122,7 @@ func TestCycleForwardWithTab(t *testing.T) {
 
 func TestCycleBackwardWithShiftTab(t *testing.T) {
 	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+	m := NewModel([]Tab{a, b, c}, 0, 80, 24)
 	press(m, tea.KeyTab, tea.ModShift)
 	if m.activeTab != 2 {
 		t.Errorf("after Shift+Tab: activeTab = %d, want 2 (wrapped)", m.activeTab)
@@ -131,7 +131,7 @@ func TestCycleBackwardWithShiftTab(t *testing.T) {
 
 func TestQuitClosesMonitorWhenNoModal(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	press(m, 'q', 0)
 	if !m.closed {
 		t.Error("expected closed = true after 'q'")
@@ -140,7 +140,7 @@ func TestQuitClosesMonitorWhenNoModal(t *testing.T) {
 
 func TestEscClosesMonitorWhenNoModal(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	press(m, tea.KeyEscape, 0)
 	if !m.closed {
 		t.Error("expected closed = true after Esc")
@@ -149,7 +149,7 @@ func TestEscClosesMonitorWhenNoModal(t *testing.T) {
 
 func TestEscForwardedToTabWhenModalActive(t *testing.T) {
 	a := &fakeTab{modal: true}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	press(m, tea.KeyEscape, 0)
 	if m.closed {
 		t.Error("modal active; Esc should forward to tab, not close the monitor")
@@ -161,7 +161,7 @@ func TestEscForwardedToTabWhenModalActive(t *testing.T) {
 
 func TestQuestionMarkTogglesHelp(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	press(m, '?', 0)
 	if !m.helpVisible {
 		t.Error("expected helpVisible = true after first '?'")
@@ -174,7 +174,7 @@ func TestQuestionMarkTogglesHelp(t *testing.T) {
 
 func TestAnyKeyClosesHelpOverlay(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	m.helpVisible = true
 	press(m, 'x', 0)
 	if m.helpVisible {
@@ -187,7 +187,7 @@ func TestAnyKeyClosesHelpOverlay(t *testing.T) {
 
 func TestClosedGetter(t *testing.T) {
 	a := &fakeTab{}
-	m := NewModel([]tab{a}, 0, 80, 24)
+	m := NewModel([]Tab{a}, 0, 80, 24)
 	press(m, 'q', 0)
 	if !m.Closed() {
 		t.Error("Closed() should return true")
@@ -196,7 +196,7 @@ func TestClosedGetter(t *testing.T) {
 
 func TestWindowResizeUpdatesSizeAndBroadcasts(t *testing.T) {
 	a, b := &fakeTab{}, &fakeTab{}
-	m := NewModel([]tab{a, b}, 0, 80, 24)
+	m := NewModel([]Tab{a, b}, 0, 80, 24)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	if m.width != 120 || m.height != 40 {
 		t.Errorf("size = %dx%d, want 120x40", m.width, m.height)
@@ -208,7 +208,7 @@ func TestWindowResizeUpdatesSizeAndBroadcasts(t *testing.T) {
 
 func TestTabIndexAtX(t *testing.T) {
 	a, b, c := &fakeTab{title: "Alpha"}, &fakeTab{title: "Beta"}, &fakeTab{title: "Gamma"}
-	m := NewModel([]tab{a, b, c}, 0, 120, 24)
+	m := NewModel([]Tab{a, b, c}, 0, 120, 24)
 
 	idx := m.tabIndexAtX(m.tabBarCellStart(2))
 	if idx != 2 {
@@ -237,7 +237,7 @@ func stripANSI(s string) string {
 func TestViewIncludesTabBarAndActiveContent(t *testing.T) {
 	a := &fakeTab{title: "Alpha"}
 	b := &fakeTab{title: "Beta"}
-	m := NewModel([]tab{a, b}, 0, 120, 24)
+	m := NewModel([]Tab{a, b}, 0, 120, 24)
 	out := stripANSI(m.View())
 	for _, want := range []string{"1 Alpha", "2 Beta", "content"} {
 		if !contains(out, want) {
@@ -248,7 +248,7 @@ func TestViewIncludesTabBarAndActiveContent(t *testing.T) {
 
 func TestViewHelpOverlayShowsKeys(t *testing.T) {
 	a := &fakeTab{title: "Alpha"}
-	m := NewModel([]tab{a}, 0, 120, 24)
+	m := NewModel([]Tab{a}, 0, 120, 24)
 	m.helpVisible = true
 	out := stripANSI(m.View())
 	for _, want := range []string{"Tab", "next", "q", "quit"} {
