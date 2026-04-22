@@ -265,7 +265,7 @@ func contains(s, sub string) bool {
 func indexOf(s, sub string) int {
 outer:
 	for i := 0; i+len(sub) <= len(s); i++ {
-		for j := 0; j < len(sub); j++ {
+		for j := range len(sub) {
 			if s[i+j] != sub[j] {
 				continue outer
 			}
@@ -273,6 +273,29 @@ outer:
 		return i
 	}
 	return -1
+}
+
+type resettableTab struct {
+	fakeTab
+	resetCalls int
+}
+
+func (r *resettableTab) Reset() tea.Cmd { r.resetCalls++; return nil }
+
+func TestSwitchToCallsResetOnReEntry(t *testing.T) {
+	a := &fakeTab{}
+	b := &resettableTab{}
+	m := NewModel([]Tab{a, b}, 0, 80, 24)
+
+	press(m, '2', 0)
+	if b.initCalls != 1 {
+		t.Fatalf("b.initCalls = %d, want 1", b.initCalls)
+	}
+	press(m, '1', 0)
+	press(m, '2', 0)
+	if b.resetCalls != 1 {
+		t.Errorf("b.resetCalls = %d, want 1 on re-entry", b.resetCalls)
+	}
 }
 
 var _ = time.Second

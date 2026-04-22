@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,6 +197,6 @@ func humanCount(n uint64) string {
 	case n >= 1_000:
 		return fmt.Sprintf("%.1fk", float64(n)/1e3)
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.FormatUint(n, 10)
 	}
 }

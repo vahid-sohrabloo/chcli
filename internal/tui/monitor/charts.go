@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -191,7 +192,7 @@ func (c *chartsTab) View(w, h int) string {
 		Foreground(lipgloss.Color(theme.AccentRed))
 
 	if c.bootErr != nil {
-		if c.bootErr == chtop.ErrNoDashboards {
+		if errors.Is(c.bootErr, chtop.ErrNoDashboards) {
 			return muted.Render("  system.dashboards has no rows — upgrade ClickHouse to ≥ 24.x for the built-in Overview.")
 		}
 		return errStyle.Render("  Error: " + c.bootErr.Error())

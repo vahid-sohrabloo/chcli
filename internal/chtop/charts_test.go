@@ -2,6 +2,7 @@ package chtop
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
@@ -52,7 +53,7 @@ func TestLoadDashboardParsesPanels(t *testing.T) {
 func TestLoadDashboardEmptyReturnsError(t *testing.T) {
 	q := &fakeParamQuerier{dashboards: &conn.QueryResult{Columns: make([]conn.ResultColumn, 3)}}
 	_, err := LoadDashboard(context.Background(), q, "Overview")
-	if err != ErrNoDashboards {
+	if !errors.Is(err, ErrNoDashboards) {
 		t.Errorf("err = %v, want ErrNoDashboards", err)
 	}
 }

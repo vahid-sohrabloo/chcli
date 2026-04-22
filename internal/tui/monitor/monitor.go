@@ -191,7 +191,15 @@ func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// switchTo activates idx, running Init() only on the first activation.
+// Resettable is an optional extension implemented by tabs that want to
+// reset their state when re-activated (e.g. Storage clears its drilldown
+// cache so the user always lands at the L0 databases list).
+type Resettable interface {
+	Reset() tea.Cmd
+}
+
+// switchTo activates idx, running Init() on the first activation and Reset()
+// (when implemented) on subsequent activations.
 func (m *Model) switchTo(idx int) tea.Cmd {
 	if idx == m.activeTab {
 		return nil
@@ -201,6 +209,9 @@ func (m *Model) switchTo(idx int) tea.Cmd {
 	if !m.initDone[idx] {
 		m.initDone[idx] = true
 		return m.tabs[idx].Init()
+	}
+	if r, ok := m.tabs[idx].(Resettable); ok {
+		return r.Reset()
 	}
 	return nil
 }

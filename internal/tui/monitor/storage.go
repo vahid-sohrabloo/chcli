@@ -319,11 +319,13 @@ func (s *storageTab) View(w, h int) string {
 	var sb strings.Builder
 
 	// Breadcrumb
-	crumb := "  Storage"
+	var crumb strings.Builder
+	crumb.WriteString("  Storage")
 	for _, p := range s.path {
-		crumb += " ▸ " + p
+		crumb.WriteString(" ▸ ")
+		crumb.WriteString(p)
 	}
-	sb.WriteString(muted.Render(crumb))
+	sb.WriteString(muted.Render(crumb.String()))
 	sb.WriteString("\n")
 
 	if s.err != nil {
