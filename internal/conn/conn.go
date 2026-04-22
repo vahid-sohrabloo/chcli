@@ -404,3 +404,57 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 	}
 	return fmt.Errorf("reconnect failed after 3 attempts: %w", lastErr)
 }
+
+// UintParam / StringParam / IntParam are thin wrappers around chconn's
+// parameter helpers, re-exported here so callers in other internal/
+// packages don't have to import chconn directly.
+func UintParam[T ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64](name string, v T) chconn.Parameter {
+	return chconn.UintParameter(name, v)
+}
+
+func IntParam[T ~int | ~int8 | ~int16 | ~int32 | ~int64](name string, v T) chconn.Parameter {
+	return chconn.IntParameter(name, v)
+}
+
+func StringParam(name, v string) chconn.Parameter {
+	return chconn.StringParameter(name, v)
+}
+
+// QueryAllWithParams is QueryAll but passes chconn parameters through to the
+// server so SQL using {name:Type} placeholders (e.g. the queries in
+// system.dashboards) can be executed.
+func (c *Conn) QueryAllWithParams(ctx context.Context, sql string, params ...chconn.Parameter) (*QueryResult, error) {
+	start := time.Now()
+
+	rows, err := c.raw.Query(ctx, sql, params...)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	cols := rows.Columns()
+	result := &QueryResult{
+		Columns: make([]ResultColumn, len(cols)),
+	}
+	for i, col := range cols {
+		result.Columns[i] = ResultColumn{
+			Name: string(col.Name()),
+			Type: string(col.Type()),
+		}
+	}
+
+	for rows.Next() {
+		result.TotalRows++
+		vals := rows.Values()
+		row := make([]string, len(vals))
+		for i, v := range vals {
+			row[i] = formatValue(v)
+		}
+		result.Rows = append(result.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	result.Elapsed = time.Since(start)
+	return result, nil
+}
