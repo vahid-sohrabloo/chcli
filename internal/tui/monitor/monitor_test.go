@@ -71,4 +71,62 @@ func TestInitCallsActiveTabInit(t *testing.T) {
 	}
 }
 
+func press(m *Model, code rune, mod tea.KeyMod) tea.Cmd {
+	_, cmd := m.Update(tea.KeyPressMsg{Code: code, Mod: mod})
+	return cmd
+}
+
+func TestSwitchTabsByNumberKeys(t *testing.T) {
+	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
+	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+
+	press(m, '2', 0)
+	if m.activeTab != 1 {
+		t.Errorf("after '2': activeTab = %d, want 1", m.activeTab)
+	}
+	if b.initCalls != 1 {
+		t.Errorf("B.Init calls = %d, want 1 (first activation)", b.initCalls)
+	}
+	press(m, '1', 0)
+	if m.activeTab != 0 {
+		t.Errorf("after '1': activeTab = %d, want 0", m.activeTab)
+	}
+	press(m, '2', 0)
+	if b.initCalls != 1 {
+		t.Errorf("B.Init calls = %d after re-visit, want 1 (Init is once-only)", b.initCalls)
+	}
+}
+
+func TestSwitchTabsIgnoresOutOfRangeNumberKeys(t *testing.T) {
+	a, b := &fakeTab{}, &fakeTab{}
+	m := NewModel([]tab{a, b}, 0, 80, 24)
+	press(m, '3', 0)
+	if m.activeTab != 0 {
+		t.Errorf("after '3' with 2 tabs: activeTab = %d, want 0 (no-op)", m.activeTab)
+	}
+}
+
+func TestCycleForwardWithTab(t *testing.T) {
+	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
+	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+	press(m, tea.KeyTab, 0)
+	if m.activeTab != 1 {
+		t.Errorf("after Tab: activeTab = %d, want 1", m.activeTab)
+	}
+	press(m, tea.KeyTab, 0)
+	press(m, tea.KeyTab, 0)
+	if m.activeTab != 0 {
+		t.Errorf("after 3 Tabs: activeTab = %d, want 0 (wrapped)", m.activeTab)
+	}
+}
+
+func TestCycleBackwardWithShiftTab(t *testing.T) {
+	a, b, c := &fakeTab{}, &fakeTab{}, &fakeTab{}
+	m := NewModel([]tab{a, b, c}, 0, 80, 24)
+	press(m, tea.KeyTab, tea.ModShift)
+	if m.activeTab != 2 {
+		t.Errorf("after Shift+Tab: activeTab = %d, want 2 (wrapped)", m.activeTab)
+	}
+}
+
 var _ = time.Second

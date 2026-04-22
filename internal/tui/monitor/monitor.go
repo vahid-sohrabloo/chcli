@@ -61,3 +61,48 @@ func (m *Model) Init() tea.Cmd {
 	m.lastActive[m.activeTab] = time.Now()
 	return m.tabs[m.activeTab].Init()
 }
+
+// Update is bubbletea's update. Returns (model, cmd) — global keys are
+// consumed here; everything else is forwarded to the active tab.
+func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
+	if kp, ok := msg.(tea.KeyPressMsg); ok {
+		if cmd, handled := m.handleGlobalKey(kp); handled {
+			return m, cmd
+		}
+	}
+	cmd := m.tabs[m.activeTab].Update(msg)
+	return m, cmd
+}
+
+func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
+	// Number keys 1..9 jump to that tab (1-indexed).
+	if kp.Code >= '1' && kp.Code <= '9' && kp.Mod == 0 {
+		idx := int(kp.Code - '1')
+		if idx < len(m.tabs) {
+			return m.switchTo(idx), true
+		}
+		return nil, true
+	}
+	switch kp.Code {
+	case tea.KeyTab:
+		if kp.Mod == tea.ModShift {
+			return m.switchTo((m.activeTab - 1 + len(m.tabs)) % len(m.tabs)), true
+		}
+		return m.switchTo((m.activeTab + 1) % len(m.tabs)), true
+	}
+	return nil, false
+}
+
+// switchTo activates idx, running Init() only on the first activation.
+func (m *Model) switchTo(idx int) tea.Cmd {
+	if idx == m.activeTab {
+		return nil
+	}
+	m.activeTab = idx
+	m.lastActive[idx] = time.Now()
+	if !m.initDone[idx] {
+		m.initDone[idx] = true
+		return m.tabs[idx].Init()
+	}
+	return nil
+}
