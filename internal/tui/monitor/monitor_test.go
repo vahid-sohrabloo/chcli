@@ -194,4 +194,30 @@ func TestClosedGetter(t *testing.T) {
 	}
 }
 
+func TestWindowResizeUpdatesSizeAndBroadcasts(t *testing.T) {
+	a, b := &fakeTab{}, &fakeTab{}
+	m := NewModel([]tab{a, b}, 0, 80, 24)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if m.width != 120 || m.height != 40 {
+		t.Errorf("size = %dx%d, want 120x40", m.width, m.height)
+	}
+	if a.updateCalls != 1 || b.updateCalls != 1 {
+		t.Errorf("resize update calls: a=%d, b=%d; want 1 each", a.updateCalls, b.updateCalls)
+	}
+}
+
+func TestTabIndexAtX(t *testing.T) {
+	a, b, c := &fakeTab{title: "Alpha"}, &fakeTab{title: "Beta"}, &fakeTab{title: "Gamma"}
+	m := NewModel([]tab{a, b, c}, 0, 120, 24)
+
+	idx := m.tabIndexAtX(m.tabBarCellStart(2))
+	if idx != 2 {
+		t.Errorf("tabIndexAtX on tab 2 start = %d, want 2", idx)
+	}
+	idx = m.tabIndexAtX(-1)
+	if idx != -1 {
+		t.Errorf("tabIndexAtX on -1 = %d, want -1 (miss)", idx)
+	}
+}
+
 var _ = time.Second

@@ -70,13 +70,71 @@ func (m *Model) Init() tea.Cmd {
 // Update is bubbletea's update. Returns (model, cmd) — global keys are
 // consumed here; everything else is forwarded to the active tab.
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
-	if kp, ok := msg.(tea.KeyPressMsg); ok {
-		if cmd, handled := m.handleGlobalKey(kp); handled {
+	switch v := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = v.Width
+		m.height = v.Height
+		var cmds []tea.Cmd
+		for _, t := range m.tabs {
+			if c := t.Update(v); c != nil {
+				cmds = append(cmds, c)
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case tea.MouseClickMsg:
+		if idx := m.tabIndexAtX(v.X); v.Y == tabBarY && idx >= 0 {
+			return m, m.switchTo(idx)
+		}
+		cmd := m.tabs[m.activeTab].Update(msg)
+		return m, cmd
+
+	case tea.KeyPressMsg:
+		if cmd, handled := m.handleGlobalKey(v); handled {
 			return m, cmd
 		}
 	}
 	cmd := m.tabs[m.activeTab].Update(msg)
 	return m, cmd
+}
+
+// tabBarY is the row index the tab bar is rendered on inside the monitor
+// screen. The title row is row 0, tab bar is row 1.
+const tabBarY = 1
+
+// tabBarCellStart returns the x column where the label of tab i starts. The
+// layout is: " N Title " cells separated by "│".
+func (m *Model) tabBarCellStart(i int) int {
+	x := 0
+	for j, t := range m.tabs {
+		if j == i {
+			return x
+		}
+		x += tabCellWidth(j+1, t.Title()) + 1 // +1 for the divider
+	}
+	return x
+}
+
+// tabIndexAtX returns the tab index whose cell contains screen-column x, or
+// -1 if x lands on a divider or outside any tab.
+func (m *Model) tabIndexAtX(x int) int {
+	if x < 0 {
+		return -1
+	}
+	start := 0
+	for i, t := range m.tabs {
+		w := tabCellWidth(i+1, t.Title())
+		if x >= start && x < start+w {
+			return i
+		}
+		start += w + 1
+	}
+	return -1
+}
+
+// tabCellWidth returns the rendered width of a tab cell " N Title ".
+func tabCellWidth(n int, title string) int {
+	return len(title) + 4
 }
 
 func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {
