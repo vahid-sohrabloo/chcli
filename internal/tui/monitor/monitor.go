@@ -133,8 +133,26 @@ func (m *Model) tabIndexAtX(x int) int {
 }
 
 // tabCellWidth returns the rendered width of a tab cell " N Title ".
-func tabCellWidth(n int, title string) int {
+func tabCellWidth(_ int, title string) int {
 	return len(title) + 4
+}
+
+// View composes title · tab bar · content · (help overlay if visible).
+func (m *Model) View() string {
+	title := m.renderTitleRow()
+	bar := m.renderTabBar()
+
+	if m.helpVisible {
+		return title + "\n" + bar + "\n\n" + m.renderHelpOverlay()
+	}
+
+	// Content area = everything below the title + tab bar + a one-row gap.
+	contentHeight := m.height - 3
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	body := m.tabs[m.activeTab].View(m.width, contentHeight)
+	return title + "\n" + bar + "\n" + body
 }
 
 func (m *Model) handleGlobalKey(kp tea.KeyPressMsg) (tea.Cmd, bool) {

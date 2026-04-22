@@ -220,4 +220,59 @@ func TestTabIndexAtX(t *testing.T) {
 	}
 }
 
+func stripANSI(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b = append(b, s[i])
+	}
+	return string(b)
+}
+
+func TestViewIncludesTabBarAndActiveContent(t *testing.T) {
+	a := &fakeTab{title: "Alpha"}
+	b := &fakeTab{title: "Beta"}
+	m := NewModel([]tab{a, b}, 0, 120, 24)
+	out := stripANSI(m.View())
+	for _, want := range []string{"1 Alpha", "2 Beta", "content"} {
+		if !contains(out, want) {
+			t.Errorf("View missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestViewHelpOverlayShowsKeys(t *testing.T) {
+	a := &fakeTab{title: "Alpha"}
+	m := NewModel([]tab{a}, 0, 120, 24)
+	m.helpVisible = true
+	out := stripANSI(m.View())
+	for _, want := range []string{"Tab", "next", "q", "quit"} {
+		if !contains(out, want) {
+			t.Errorf("help overlay missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && indexOf(s, sub) >= 0
+}
+
+func indexOf(s, sub string) int {
+outer:
+	for i := 0; i+len(sub) <= len(s); i++ {
+		for j := 0; j < len(sub); j++ {
+			if s[i+j] != sub[j] {
+				continue outer
+			}
+		}
+		return i
+	}
+	return -1
+}
+
 var _ = time.Second
