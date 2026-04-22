@@ -302,6 +302,31 @@ func (t *topModel) Mode() topMode { return t.mode }
 func (t *topModel) FetchCmd() tea.Cmd { return t.fetchCmd() }
 func (t *topModel) TickCmd() tea.Cmd  { return t.tickCmd() }
 
+// TopModel is the exported type alias for topModel so other packages can
+// refer to it by name (it remains constructed via newTopView / test helpers).
+type TopModel = topModel
+
+// NewTopViewForTest / SeedProcessesForTest / CursorForTest / SetModeForTest
+// are test-only helpers used by sibling packages (internal/tui/monitor) so
+// they can drive the topModel without importing its private names.
+func NewTopViewForTest(width, height int) *topModel {
+	return newTopView(nil, width, height)
+}
+
+func SeedProcessesForTest(t *topModel, n int) {
+	procs := make([]chtop.Process, n)
+	for i := range n {
+		procs[i] = chtop.Process{
+			QueryID: string(rune('a' + i)),
+			Elapsed: float64(n - i),
+		}
+	}
+	t.snap = chtop.Snapshot{Processes: procs}
+}
+
+func (t *topModel) CursorForTest() int       { return t.cursor }
+func (t *topModel) SetModeForTest(m topMode) { t.mode = m }
+
 // Update is the bubbletea update for the topview. Returns (cmd, closed); when
 // closed is true the outer Model should nil out its topView field and return
 // focus to the REPL input.
