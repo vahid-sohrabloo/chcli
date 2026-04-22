@@ -18,6 +18,30 @@ func RenderTable(columns []string, rows [][]string, maxWidth int) string {
 	return RenderTableSelected(columns, rows, maxWidth, -1)
 }
 
+// RepeatHeaderAtBottom takes a bordered-table rendering and repeats the header
+// row (plus its trailing separator) just above the bottom border, so long
+// tables stay readable without scrolling back up. Returns the input unchanged
+// when the output doesn't look like a bordered table (e.g. vertical-mode
+// fallback or a non-table placeholder).
+func RepeatHeaderAtBottom(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) < 5 {
+		return s
+	}
+	last := len(lines) - 1
+	// Lipgloss wraps the border glyphs in ANSI escapes, so match on Contains
+	// rather than HasPrefix to detect a bordered table.
+	if !strings.Contains(lines[0], "╭") || !strings.Contains(lines[last], "╰") {
+		return s
+	}
+	header := lines[1]
+	sep := lines[2]
+	out := make([]string, 0, len(lines)+2)
+	out = append(out, lines[:last]...)
+	out = append(out, sep, header, lines[last])
+	return strings.Join(out, "\n")
+}
+
 // RenderTableSelected is RenderTable with an optional highlighted row index.
 // Pass selected = -1 to disable highlighting.
 func RenderTableSelected(columns []string, rows [][]string, maxWidth, selected int) string {

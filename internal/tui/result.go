@@ -41,7 +41,7 @@ func FormatQueryResult(result *conn.QueryResult, query string, vertical bool, wi
 	if vertical {
 		sb.WriteString(render.RenderVertical(columns, result.Rows))
 	} else {
-		sb.WriteString(render.RenderTable(columns, result.Rows, width))
+		sb.WriteString(render.RepeatHeaderAtBottom(render.RenderTable(columns, result.Rows, width)))
 	}
 	sb.WriteString("\n")
 
