@@ -1,8 +1,48 @@
 package metacmd
 
 import (
+	"context"
 	"testing"
 )
+
+func TestRouterDispatchesTop(t *testing.T) {
+	r := &Router{handlers: map[string]Handler{}, hctx: &HandlerContext{}}
+	r.handlers["top"] = handleTop
+
+	res, err := r.Execute(context.Background(), `\top`)
+	if err != nil {
+		t.Fatalf("\\top returned error: %v", err)
+	}
+	if res == nil || !res.OpenTop {
+		t.Errorf("\\top should set OpenTop; got %+v", res)
+	}
+	if res.TopInterval != "" {
+		t.Errorf("\\top without arg should leave TopInterval empty, got %q", res.TopInterval)
+	}
+}
+
+func TestRouterDispatchesTopWithInterval(t *testing.T) {
+	r := &Router{handlers: map[string]Handler{}, hctx: &HandlerContext{}}
+	r.handlers["top"] = handleTop
+
+	res, err := r.Execute(context.Background(), `\top 5s`)
+	if err != nil {
+		t.Fatalf("\\top 5s returned error: %v", err)
+	}
+	if res.TopInterval != "5s" {
+		t.Errorf("TopInterval = %q, want 5s", res.TopInterval)
+	}
+}
+
+func TestRouterDispatchesTopInvalidInterval(t *testing.T) {
+	r := &Router{handlers: map[string]Handler{}, hctx: &HandlerContext{}}
+	r.handlers["top"] = handleTop
+
+	_, err := r.Execute(context.Background(), `\top bogus`)
+	if err == nil {
+		t.Fatal("\\top bogus should return an error")
+	}
+}
 
 func TestIsMetaCommand(t *testing.T) {
 	tests := []struct {

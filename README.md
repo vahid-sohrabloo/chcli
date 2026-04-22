@@ -93,6 +93,18 @@ SQLite-backed query history with arrow-key browsing and fuzzy search (`Ctrl+R`).
 
 Re-run a query on an interval: `\watch 5 SELECT count() FROM events` runs every 5 seconds. `Ctrl+C` to stop.
 
+### `\top` — ClickHouse activity monitor
+
+`\top` opens a full-screen live view (like Linux `top`, but for the server): active queries from `system.processes` plus headline metrics — uptime, active-query count, query/sec, insert-rows/sec, memory used/total, merges and mutations in progress, replica lag.
+
+Keys:
+
+- `↑` `↓` move cursor — `←` `→` scroll columns — `Enter` full query detail
+- `s` cycle sort (elapsed / memory / rows) — `d` cycle refresh (default 2s; cycles 5s / 0.5s / 1s / 2s)
+- `/` filter — `k` kill selected query (with `[y/N]` confirm) — `q` / `Esc` exit
+
+The polling SQLs carry `SETTINGS log_queries = 0, log_query_threads = 0, log_comment = 'chcli-top'`, so `\top` doesn't pollute `system.query_log` / `system.query_thread_log`.
+
 ### Snippets
 
 Save and recall frequently used queries:
@@ -145,6 +157,7 @@ Save and recall frequently used queries:
 | `\doc <func>` | Show function documentation |
 | `\metrics` | Show last query metrics |
 | `\watch <sec> <query>` | Re-run query on interval |
+| `\top` | Live processes + metrics (full-screen) |
 | `\theme [name]` | List or switch theme |
 | `\f [name]` | List or run snippet |
 | `\fs <name> <query>` | Save snippet |
