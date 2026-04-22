@@ -4,6 +4,7 @@ package chtop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -31,8 +32,8 @@ type Header struct {
 	Uptime            time.Duration
 	Version           string
 	ActiveQueries     int
-	QueriesTotal      uint64  // monotonic; counter for Query events
-	InsertedRowsTotal uint64  // monotonic; counter for InsertedRows events
+	QueriesTotal      uint64 // monotonic; counter for Query events
+	InsertedRowsTotal uint64 // monotonic; counter for InsertedRows events
 	MemUsed           uint64
 	MemTotal          uint64
 	QRunning          int
@@ -172,7 +173,7 @@ func parseProcesses(qr *conn.QueryResult) ([]Process, error) {
 // defense in depth.
 func parseHeader(qr *conn.QueryResult) (Header, error) {
 	if len(qr.Rows) == 0 {
-		return Header{}, fmt.Errorf("parseHeader: no rows")
+		return Header{}, errors.New("parseHeader: no rows")
 	}
 	r := qr.Rows[0]
 	if len(r) < 11 {

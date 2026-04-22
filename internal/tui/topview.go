@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -532,7 +533,7 @@ func (t *topModel) renderHeader() string {
 	b.WriteString(val(fmt.Sprintf("%.1f q/s ", t.rates.QueriesPerSec)))
 	b.WriteString(dim(sparkline(t.qpsHist)))
 	b.WriteString(dim(" · "))
-	b.WriteString(val(fmt.Sprintf("%s rows/s inserts ", humanCount(uint64(t.rates.InsertRowsPerSec)))))
+	b.WriteString(val(humanCount(uint64(t.rates.InsertRowsPerSec)) + " rows/s inserts "))
 	b.WriteString(dim(sparkline(t.insertHist)))
 	b.WriteString(dim(" · "))
 	b.WriteString(val(fmt.Sprintf("mem %s/%s ", humanBytes(h.MemUsed), humanBytes(h.MemTotal))))
@@ -626,10 +627,7 @@ func (t *topModel) visibleColumns() ([]string, []int) {
 		start = pinned - 1
 	}
 	// Take up to 5 scrollable columns plus the pinned query column.
-	end := start + 5
-	if end > pinned {
-		end = pinned
-	}
+	end := min(start+5, pinned)
 	idx := make([]int, 0, end-start+1)
 	for i := start; i < end; i++ {
 		idx = append(idx, i)
@@ -683,10 +681,7 @@ func renderProgressBar(read, total uint64) string {
 	}
 	const width = 10
 	pct := float64(read) / float64(total)
-	filled := int(pct * float64(width))
-	if filled > width {
-		filled = width
-	}
+	filled := min(int(pct*float64(width)), width)
 	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled) +
 		fmt.Sprintf(" %3.0f%%", pct*100)
 }
@@ -737,16 +732,13 @@ func (t *topModel) renderModal() string {
 		muted := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ActiveTheme.TextMuted))
 		// Preview the SQL text — truncated to whatever fits after the prefix.
-		prefix := fmt.Sprintf("  Kill %s", t.killTarget)
+		prefix := "  Kill " + t.killTarget
 		if t.killUser != "" {
 			prefix += " by " + t.killUser
 		}
 		suffix := "  [y/N]"
 		// Allow at least 20 chars for the preview on very narrow terminals.
-		budget := t.width - lipgloss.Width(prefix) - lipgloss.Width(suffix) - 4
-		if budget < 20 {
-			budget = 20
-		}
+		budget := max(t.width-lipgloss.Width(prefix)-lipgloss.Width(suffix)-4, 20)
 		preview := t.killQuery
 		if len(preview) > budget {
 			preview = preview[:budget-1] + "…"
@@ -780,13 +772,14 @@ func (t *topModel) View() string {
 
 // renderDetail draws the full query metadata + formatted/highlighted SQL for
 // the currently-selected row. Structure:
-//   Title row ............................... q/Esc close
-//   ────────────────────────────────────────────────────
-//     label  : value
-//     label  : value
-//     ...
-//   ────────────────────────────────────────────────────
-//     <formatted, highlighted SQL>
+//
+//	Title row ............................... q/Esc close
+//	────────────────────────────────────────────────────
+//	  label  : value
+//	  label  : value
+//	  ...
+//	────────────────────────────────────────────────────
+//	  <formatted, highlighted SQL>
 func (t *topModel) renderDetail() string {
 	// Pin to the query_id captured at Enter. If it's still running, show live
 	// stats from the current snap; if it finished, show the last-known snapshot
@@ -813,10 +806,7 @@ func (t *topModel) renderDetail() string {
 		Foreground(lipgloss.Color(ActiveTheme.AccentBlue)).Bold(true).
 		Render(titleText)
 	closeHint := dim("q/Esc to close  ")
-	pad := t.width - lipgloss.Width(title) - lipgloss.Width(closeHint)
-	if pad < 1 {
-		pad = 1
-	}
+	pad := max(t.width-lipgloss.Width(title)-lipgloss.Width(closeHint), 1)
 
 	var b strings.Builder
 	b.WriteString(title)
@@ -889,6 +879,6 @@ func humanCount(n uint64) string {
 	case n >= 1_000:
 		return fmt.Sprintf("%.1fk", float64(n)/1e3)
 	default:
-		return fmt.Sprintf("%d", n)
+		return strconv.FormatUint(n, 10)
 	}
 }

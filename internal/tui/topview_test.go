@@ -28,7 +28,7 @@ func stripANSI(s string) string {
 
 func seedProcs(tv *topModel, n int) {
 	procs := make([]chtop.Process, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		procs[i] = chtop.Process{
 			QueryID: string(rune('a' + i)),
 			Elapsed: float64(n - i),
@@ -62,13 +62,13 @@ func TestTopViewCursorClamps(t *testing.T) {
 
 func TestTopViewColumnOffsetClamps(t *testing.T) {
 	tv := newTopView(nil, 80, 24)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		pressKey(tv, tea.KeyRight)
 	}
 	if tv.colOffset != topColumnCount-1 {
 		t.Errorf("colOffset = %d after 20 rights, want %d", tv.colOffset, topColumnCount-1)
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		pressKey(tv, tea.KeyLeft)
 	}
 	if tv.colOffset != 0 {

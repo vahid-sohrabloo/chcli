@@ -2,6 +2,7 @@ package chtop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -207,7 +208,7 @@ func TestFetcherFirstAndSecondTick(t *testing.T) {
 }
 
 func TestFetcherErrorPropagates(t *testing.T) {
-	fq := &fakeQuerier{err: fmt.Errorf("boom")}
+	fq := &fakeQuerier{err: errors.New("boom")}
 	f := NewFetcher(fq)
 	_, _, err := f.Fetch(context.Background())
 	if err == nil {
