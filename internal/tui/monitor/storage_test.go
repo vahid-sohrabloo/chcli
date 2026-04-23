@@ -20,8 +20,10 @@ func TestStorageTabDefaults(t *testing.T) {
 
 func TestStorageTabDrillsDown(t *testing.T) {
 	s := NewStorageTab(nil).(*storageTab)
-	s.dbs = []chtop.DBRow{{Name: "events"}, {Name: "logs"}}
-	s.cursor = 0
+	s.width, s.height = 120, 40
+	s.dbs = []chtop.DBRow{{Name: "events", Bytes: 100}, {Name: "logs", Bytes: 10}}
+	s.rebuildTable() // populate visibleNames via sort+filter pipeline
+	s.table.SetCursor(0)
 	s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if s.level() != storageLevelTables {
 		t.Errorf("level = %v, want tables", s.level())

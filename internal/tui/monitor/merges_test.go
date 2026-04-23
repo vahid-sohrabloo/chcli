@@ -26,19 +26,20 @@ func TestMergesTabOnSnapshotStoresRows(t *testing.T) {
 
 func TestMergesTabCursorClamps(t *testing.T) {
 	tab := NewMergesTab(nil).(*mergesTab)
+	tab.width, tab.height = 120, 40
 	tab.onSnapshot([]chtop.MergeRow{{Database: "a"}, {Database: "b"}}, nil)
 
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if tab.cursor != 1 {
-		t.Errorf("cursor = %d after 3 downs with 2 rows, want 1", tab.cursor)
+	if tab.table.Cursor() != 1 {
+		t.Errorf("cursor = %d after 3 downs with 2 rows, want 1", tab.table.Cursor())
 	}
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	tab.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	if tab.cursor != 0 {
-		t.Errorf("cursor = %d after 3 ups, want 0", tab.cursor)
+	if tab.table.Cursor() != 0 {
+		t.Errorf("cursor = %d after 3 ups, want 0", tab.table.Cursor())
 	}
 }
 
@@ -49,7 +50,7 @@ func TestMergesTabViewShowsContent(t *testing.T) {
 		[]chtop.MutationRow{{Database: "events", Table: "hits", MutationID: "m1", Command: "DELETE WHERE x=1"}},
 	)
 	out := stripANSI(tab.View(120, 24))
-	for _, want := range []string{"events", "hits", "DELETE", "m1"} {
+	for _, want := range []string{"events", "hits", "DELETE", "merge", "mutation"} {
 		if !contains(out, want) {
 			t.Errorf("View missing %q in:\n%s", want, out)
 		}

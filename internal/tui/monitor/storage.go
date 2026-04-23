@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -66,14 +68,18 @@ type storageTab struct {
 	partitions []chtop.PartitionRow
 	parts      []chtop.PartRow
 
-	path      []string // e.g. ["events", "hits", "20260421"]
-	cursor    int
-	loading   bool
-	err       error
-	sortBy    storageSort
+	path    []string // e.g. ["events", "hits", "20260421"]
+	loading bool
+	err     error
+	sortBy  storageSort
+
 	filter    string
 	filterBuf string
 	inFilter  bool
+
+	table         table.Model
+	visibleNames  []string // names of rows currently in the table, same order
+	width, height int
 }
 
 // NewStorageTab builds the Storage tab; q may be nil in tests.
@@ -136,19 +142,23 @@ func (s *storageTab) Update(msg tea.Msg) tea.Cmd {
 	switch v := msg.(type) {
 	case storageDBsMsg:
 		s.loading, s.err, s.dbs = false, v.err, v.rows
-		s.resortCurrent()
+		s.rebuildTable()
 		return nil
 	case storageTablesMsg:
 		s.loading, s.err, s.tables = false, v.err, v.rows
-		s.resortCurrent()
+		s.rebuildTable()
 		return nil
 	case storagePartitionsMsg:
 		s.loading, s.err, s.partitions = false, v.err, v.rows
-		s.resortCurrent()
+		s.rebuildTable()
 		return nil
 	case storagePartsMsg:
 		s.loading, s.err, s.parts = false, v.err, v.rows
-		s.resortCurrent()
+		s.rebuildTable()
+		return nil
+	case tea.WindowSizeMsg:
+		s.width, s.height = v.Width, v.Height
+		s.rebuildTable()
 		return nil
 	case tea.KeyPressMsg:
 		return s.handleKey(v)
@@ -161,30 +171,27 @@ func (s *storageTab) handleKey(kp tea.KeyPressMsg) tea.Cmd {
 		return s.handleFilterKey(kp)
 	}
 	switch kp.Code {
-	case tea.KeyUp:
-		if s.cursor > 0 {
-			s.cursor--
-		}
-	case tea.KeyDown:
-		if s.cursor < s.visibleCount()-1 {
-			s.cursor++
-		}
-	case 'g':
-		s.cursor = 0
-	case 'G':
-		s.cursor = s.visibleCount() - 1
 	case tea.KeyEnter, tea.KeyRight:
 		return s.drillIn()
 	case tea.KeyBackspace, tea.KeyLeft:
 		return s.drillOut()
+	case 'g':
+		s.table.GotoTop()
+	case 'G':
+		s.table.GotoBottom()
 	case '/':
 		s.inFilter = true
 		s.filterBuf = s.filter
 	case 's':
 		s.sortBy = (s.sortBy + 1) % 3
-		s.resortCurrent()
+		s.rebuildTable()
 	case 'r':
 		return s.fetchCurrentLevel()
+	default:
+		// Forward ↑/↓/PgUp/PgDn etc. to the bubbles/table component.
+		var cmd tea.Cmd
+		s.table, cmd = s.table.Update(kp)
+		return cmd
 	}
 	return nil
 }
@@ -198,7 +205,8 @@ func (s *storageTab) handleFilterKey(kp tea.KeyPressMsg) tea.Cmd {
 		s.filter = s.filterBuf
 		s.inFilter = false
 		s.filterBuf = ""
-		s.cursor = 0
+		s.rebuildTable()
+		s.table.SetCursor(0)
 	case tea.KeyBackspace, tea.KeyDelete:
 		if len(s.filterBuf) > 0 {
 			r := []rune(s.filterBuf)
@@ -213,27 +221,16 @@ func (s *storageTab) handleFilterKey(kp tea.KeyPressMsg) tea.Cmd {
 }
 
 func (s *storageTab) drillIn() tea.Cmd {
-	switch s.level() {
-	case storageLevelRoot:
-		if s.cursor < len(s.dbs) {
-			s.path = append(s.path, s.dbs[s.cursor].Name)
-			s.cursor, s.filter = 0, ""
-			return s.fetchCurrentLevel()
-		}
-	case storageLevelTables:
-		if s.cursor < len(s.tables) {
-			s.path = append(s.path, s.tables[s.cursor].Name)
-			s.cursor, s.filter = 0, ""
-			return s.fetchCurrentLevel()
-		}
-	case storageLevelPartitions:
-		if s.cursor < len(s.partitions) {
-			s.path = append(s.path, s.partitions[s.cursor].Name)
-			s.cursor, s.filter = 0, ""
-			return s.fetchCurrentLevel()
-		}
+	if s.level() == storageLevelParts {
+		return nil // leaf
 	}
-	return nil
+	i := s.table.Cursor()
+	if i < 0 || i >= len(s.visibleNames) {
+		return nil
+	}
+	s.path = append(s.path, s.visibleNames[i])
+	s.filter = ""
+	return s.fetchCurrentLevel()
 }
 
 func (s *storageTab) drillOut() tea.Cmd {
@@ -241,53 +238,362 @@ func (s *storageTab) drillOut() tea.Cmd {
 		return nil
 	}
 	s.path = s.path[:len(s.path)-1]
-	s.cursor, s.filter = 0, ""
+	s.filter = ""
 	return s.fetchCurrentLevel()
 }
 
-func (s *storageTab) visibleCount() int {
-	switch s.level() {
-	case storageLevelRoot:
-		return len(s.dbs)
-	case storageLevelTables:
-		return len(s.tables)
-	case storageLevelPartitions:
-		return len(s.partitions)
-	case storageLevelParts:
-		return len(s.parts)
+// rebuildTable applies the current filter + sort to the level's data and
+// rebuilds the bubbles/table component's columns and rows. Called whenever
+// data, filter, sort, or window size changes.
+func (s *storageTab) rebuildTable() {
+	cols, rows, names := s.buildColumnsAndRows()
+	s.visibleNames = names
+
+	width := max(s.width-2, 40)
+	// Leave room for title row + tab bar + breadcrumb + filter + blank.
+	height := max(s.height-6, 5)
+
+	s.table = table.New(
+		table.WithColumns(cols),
+		table.WithRows(rows),
+		table.WithHeight(height),
+		table.WithWidth(width),
+		table.WithFocused(true),
+		table.WithStyles(storageTableStyles()),
+	)
+	// Clamp cursor if the row count shrank.
+	if s.table.Cursor() >= len(rows) {
+		s.table.SetCursor(max(len(rows)-1, 0))
 	}
-	return 0
 }
 
-func (s *storageTab) resortCurrent() {
-	less := func(iName, jName string, iBytes, jBytes, iRows, jRows uint64) bool {
-		switch s.sortBy {
-		case storageSortRows:
-			return iRows > jRows
-		case storageSortName:
-			return iName < jName
-		default:
-			return iBytes > jBytes
-		}
-	}
+// buildColumnsAndRows produces the per-level table definition plus a
+// parallel slice of item names (used by drillIn to look up the row under
+// the cursor in the source data).
+func (s *storageTab) buildColumnsAndRows() ([]table.Column, []table.Row, []string) {
+	// Column widths chosen so the layout fits reasonably at 100 cols.
+	// Widths include the bubbles/table default Padding(0, 1) on each cell.
+	const (
+		colSize    = 12
+		colBar     = 24
+		colPct     = 8
+		colNumeric = 10
+	)
+	colName := max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+6), 20)
+
 	switch s.level() {
 	case storageLevelRoot:
-		sort.Slice(s.dbs, func(i, j int) bool {
-			return less(s.dbs[i].Name, s.dbs[j].Name, s.dbs[i].Bytes, s.dbs[j].Bytes, s.dbs[i].Rows, s.dbs[j].Rows)
-		})
+		cols := []table.Column{
+			{Title: "size", Width: colSize},
+			{Title: "", Width: colBar},
+			{Title: "%", Width: colPct},
+			{Title: "database", Width: colName},
+			{Title: "tables", Width: colNumeric},
+			{Title: "rows", Width: colNumeric},
+		}
+		return cols, s.buildDBRows(), s.dbNames()
+
 	case storageLevelTables:
-		sort.Slice(s.tables, func(i, j int) bool {
-			return less(s.tables[i].Name, s.tables[j].Name, s.tables[i].Bytes, s.tables[j].Bytes, s.tables[i].Rows, s.tables[j].Rows)
-		})
+		cols := []table.Column{
+			{Title: "size", Width: colSize},
+			{Title: "", Width: colBar},
+			{Title: "%", Width: colPct},
+			{Title: "table", Width: colName},
+			{Title: "parts", Width: colNumeric},
+			{Title: "rows", Width: colNumeric},
+		}
+		return cols, s.buildTableRows(), s.tableNames()
+
 	case storageLevelPartitions:
-		sort.Slice(s.partitions, func(i, j int) bool {
-			return less(s.partitions[i].Name, s.partitions[j].Name, s.partitions[i].Bytes, s.partitions[j].Bytes, s.partitions[i].Rows, s.partitions[j].Rows)
-		})
+		cols := []table.Column{
+			{Title: "size", Width: colSize},
+			{Title: "", Width: colBar},
+			{Title: "%", Width: colPct},
+			{Title: "partition", Width: colName},
+			{Title: "parts", Width: colNumeric},
+			{Title: "rows", Width: colNumeric},
+		}
+		return cols, s.buildPartitionRows(), s.partitionNames()
+
 	case storageLevelParts:
-		sort.Slice(s.parts, func(i, j int) bool {
-			return less(s.parts[i].Name, s.parts[j].Name, s.parts[i].Bytes, s.parts[j].Bytes, s.parts[i].Rows, s.parts[j].Rows)
-		})
+		cols := []table.Column{
+			{Title: "size", Width: colSize},
+			{Title: "", Width: colBar},
+			{Title: "%", Width: colPct},
+			{Title: "part", Width: colName},
+			{Title: "lvl", Width: colNumeric},
+			{Title: "rows", Width: colNumeric},
+		}
+		return cols, s.buildPartRows(), s.partNames()
 	}
+	return nil, nil, nil
+}
+
+// --- per-level row builders ---
+
+func (s *storageTab) buildDBRows() []table.Row {
+	items := s.sortDBs(s.filterDBs())
+	maxB := maxBytesDBs(items)
+	rows := make([]table.Row, len(items))
+	for i, r := range items {
+		rows[i] = table.Row{
+			humanBytesStorage(r.Bytes),
+			storageBar(ratio(r.Bytes, maxB)),
+			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
+			r.Name,
+			strconv.Itoa(r.Tables),
+			humanCount(r.Rows),
+		}
+	}
+	return rows
+}
+
+func (s *storageTab) dbNames() []string {
+	items := s.sortDBs(s.filterDBs())
+	names := make([]string, len(items))
+	for i, r := range items {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func (s *storageTab) buildTableRows() []table.Row {
+	items := s.sortTables(s.filterTables())
+	maxB := maxBytesTables(items)
+	rows := make([]table.Row, len(items))
+	for i, r := range items {
+		rows[i] = table.Row{
+			humanBytesStorage(r.Bytes),
+			storageBar(ratio(r.Bytes, maxB)),
+			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
+			r.Name,
+			strconv.Itoa(r.Parts),
+			humanCount(r.Rows),
+		}
+	}
+	return rows
+}
+
+func (s *storageTab) tableNames() []string {
+	items := s.sortTables(s.filterTables())
+	names := make([]string, len(items))
+	for i, r := range items {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func (s *storageTab) buildPartitionRows() []table.Row {
+	items := s.sortPartitions(s.filterPartitions())
+	maxB := maxBytesPartitions(items)
+	rows := make([]table.Row, len(items))
+	for i, r := range items {
+		rows[i] = table.Row{
+			humanBytesStorage(r.Bytes),
+			storageBar(ratio(r.Bytes, maxB)),
+			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
+			r.Name,
+			strconv.Itoa(r.Parts),
+			humanCount(r.Rows),
+		}
+	}
+	return rows
+}
+
+func (s *storageTab) partitionNames() []string {
+	items := s.sortPartitions(s.filterPartitions())
+	names := make([]string, len(items))
+	for i, r := range items {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func (s *storageTab) buildPartRows() []table.Row {
+	items := s.sortParts(s.filterParts())
+	maxB := maxBytesParts(items)
+	rows := make([]table.Row, len(items))
+	for i, r := range items {
+		rows[i] = table.Row{
+			humanBytesStorage(r.Bytes),
+			storageBar(ratio(r.Bytes, maxB)),
+			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
+			r.Name,
+			strconv.Itoa(r.Level),
+			humanCount(r.Rows),
+		}
+	}
+	return rows
+}
+
+func (s *storageTab) partNames() []string {
+	items := s.sortParts(s.filterParts())
+	names := make([]string, len(items))
+	for i, r := range items {
+		names[i] = r.Name
+	}
+	return names
+}
+
+// --- filter and sort helpers ---
+
+func (s *storageTab) filterDBs() []chtop.DBRow {
+	if s.filter == "" {
+		return s.dbs
+	}
+	needle := strings.ToLower(s.filter)
+	out := make([]chtop.DBRow, 0, len(s.dbs))
+	for _, r := range s.dbs {
+		if strings.Contains(strings.ToLower(r.Name), needle) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *storageTab) filterTables() []chtop.TableRow {
+	if s.filter == "" {
+		return s.tables
+	}
+	needle := strings.ToLower(s.filter)
+	out := make([]chtop.TableRow, 0, len(s.tables))
+	for _, r := range s.tables {
+		if strings.Contains(strings.ToLower(r.Name), needle) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *storageTab) filterPartitions() []chtop.PartitionRow {
+	if s.filter == "" {
+		return s.partitions
+	}
+	needle := strings.ToLower(s.filter)
+	out := make([]chtop.PartitionRow, 0, len(s.partitions))
+	for _, r := range s.partitions {
+		if strings.Contains(strings.ToLower(r.Name), needle) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *storageTab) filterParts() []chtop.PartRow {
+	if s.filter == "" {
+		return s.parts
+	}
+	needle := strings.ToLower(s.filter)
+	out := make([]chtop.PartRow, 0, len(s.parts))
+	for _, r := range s.parts {
+		if strings.Contains(strings.ToLower(r.Name), needle) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (s *storageTab) sortDBs(items []chtop.DBRow) []chtop.DBRow {
+	sort.Slice(items, func(i, j int) bool {
+		switch s.sortBy {
+		case storageSortRows:
+			return items[i].Rows > items[j].Rows
+		case storageSortName:
+			return items[i].Name < items[j].Name
+		default:
+			return items[i].Bytes > items[j].Bytes
+		}
+	})
+	return items
+}
+
+func (s *storageTab) sortTables(items []chtop.TableRow) []chtop.TableRow {
+	sort.Slice(items, func(i, j int) bool {
+		switch s.sortBy {
+		case storageSortRows:
+			return items[i].Rows > items[j].Rows
+		case storageSortName:
+			return items[i].Name < items[j].Name
+		default:
+			return items[i].Bytes > items[j].Bytes
+		}
+	})
+	return items
+}
+
+func (s *storageTab) sortPartitions(items []chtop.PartitionRow) []chtop.PartitionRow {
+	sort.Slice(items, func(i, j int) bool {
+		switch s.sortBy {
+		case storageSortRows:
+			return items[i].Rows > items[j].Rows
+		case storageSortName:
+			return items[i].Name < items[j].Name
+		default:
+			return items[i].Bytes > items[j].Bytes
+		}
+	})
+	return items
+}
+
+func (s *storageTab) sortParts(items []chtop.PartRow) []chtop.PartRow {
+	sort.Slice(items, func(i, j int) bool {
+		switch s.sortBy {
+		case storageSortRows:
+			return items[i].Rows > items[j].Rows
+		case storageSortName:
+			return items[i].Name < items[j].Name
+		default:
+			return items[i].Bytes > items[j].Bytes
+		}
+	})
+	return items
+}
+
+func maxBytesDBs(items []chtop.DBRow) uint64 {
+	var m uint64
+	for _, r := range items {
+		if r.Bytes > m {
+			m = r.Bytes
+		}
+	}
+	return m
+}
+
+func maxBytesTables(items []chtop.TableRow) uint64 {
+	var m uint64
+	for _, r := range items {
+		if r.Bytes > m {
+			m = r.Bytes
+		}
+	}
+	return m
+}
+
+func maxBytesPartitions(items []chtop.PartitionRow) uint64 {
+	var m uint64
+	for _, r := range items {
+		if r.Bytes > m {
+			m = r.Bytes
+		}
+	}
+	return m
+}
+
+func maxBytesParts(items []chtop.PartRow) uint64 {
+	var m uint64
+	for _, r := range items {
+		if r.Bytes > m {
+			m = r.Bytes
+		}
+	}
+	return m
+}
+
+func ratio(b, m uint64) float64 {
+	if m == 0 {
+		return 0
+	}
+	return float64(b) / float64(m)
 }
 
 // Reset clears the drilldown + all cached levels so the next display
@@ -295,7 +601,6 @@ func (s *storageTab) resortCurrent() {
 // tab (via the Resettable interface).
 func (s *storageTab) Reset() tea.Cmd {
 	s.path = nil
-	s.cursor = 0
 	s.filter = ""
 	s.inFilter = false
 	s.filterBuf = ""
@@ -304,21 +609,25 @@ func (s *storageTab) Reset() tea.Cmd {
 	s.partitions = nil
 	s.parts = nil
 	s.err = nil
+	s.rebuildTable()
 	return s.fetchCurrentLevel()
 }
 
 func (s *storageTab) View(w, h int) string {
+	// Remember the latest size in case the container resizes us without a
+	// WindowSizeMsg reaching here first (the monitor Resize is broadcast).
+	if w != s.width || h != s.height {
+		s.width, s.height = w, h
+		s.rebuildTable()
+	}
+
 	theme := uitheme.Active
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextMuted))
-	normal := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.TextPrimary))
-	sel := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.BgDark)).
-		Background(lipgloss.Color(theme.AccentBlue)).Bold(true)
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.AccentRed))
 
 	var sb strings.Builder
 
-	// Breadcrumb
+	// Breadcrumb.
 	var crumb strings.Builder
 	crumb.WriteString("  Storage")
 	for _, p := range s.path {
@@ -337,100 +646,58 @@ func (s *storageTab) View(w, h int) string {
 		return sb.String()
 	}
 
+	// Filter status line.
 	if s.inFilter {
 		sb.WriteString(muted.Render("  /filter: "+s.filterBuf+"│") + "\n")
 	} else if s.filter != "" {
 		sb.WriteString(muted.Render("  filter: "+s.filter) + "\n")
 	}
 
-	rows := s.renderRows(w)
-	for i, line := range rows {
-		if i == s.cursor {
-			sb.WriteString(sel.Render(line))
-		} else {
-			sb.WriteString(normal.Render(line))
-		}
-		sb.WriteString("\n")
+	if s.visibleCount() == 0 {
+		sb.WriteString(muted.Render("  (empty)"))
+		return sb.String()
 	}
-	_ = h
+
+	sb.WriteString(s.table.View())
 	return sb.String()
 }
 
-func (s *storageTab) renderRows(w int) []string {
+func (s *storageTab) visibleCount() int {
 	switch s.level() {
 	case storageLevelRoot:
-		return renderStorageRows(s.dbs, s.filter, func(r chtop.DBRow) (string, uint64, uint64) {
-			return r.Name, r.Bytes, r.Rows
-		}, func(r chtop.DBRow, bar string, pct float64) string {
-			return fmt.Sprintf("  %9s  [%s]  %5.1f%%  %s   %d tables",
-				humanBytesStorage(r.Bytes), bar, pct*100, r.Name, r.Tables)
-		})
+		return len(s.dbs)
 	case storageLevelTables:
-		return renderStorageRows(s.tables, s.filter, func(r chtop.TableRow) (string, uint64, uint64) {
-			return r.Name, r.Bytes, r.Rows
-		}, func(r chtop.TableRow, bar string, pct float64) string {
-			return fmt.Sprintf("  %9s  [%s]  %5.1f%%  %s   parts %d   rows %s",
-				humanBytesStorage(r.Bytes), bar, pct*100, r.Name, r.Parts, humanCount(r.Rows))
-		})
+		return len(s.tables)
 	case storageLevelPartitions:
-		return renderStorageRows(s.partitions, s.filter, func(r chtop.PartitionRow) (string, uint64, uint64) {
-			return r.Name, r.Bytes, r.Rows
-		}, func(r chtop.PartitionRow, bar string, pct float64) string {
-			return fmt.Sprintf("  %9s  [%s]  %5.1f%%  %s   parts %d",
-				humanBytesStorage(r.Bytes), bar, pct*100, r.Name, r.Parts)
-		})
+		return len(s.partitions)
 	case storageLevelParts:
-		return renderStorageRows(s.parts, s.filter, func(r chtop.PartRow) (string, uint64, uint64) {
-			return r.Name, r.Bytes, r.Rows
-		}, func(r chtop.PartRow, bar string, pct float64) string {
-			return fmt.Sprintf("  %9s  [%s]  %5.1f%%  %s   rows %s   lvl %d",
-				humanBytesStorage(r.Bytes), bar, pct*100, r.Name, humanCount(r.Rows), r.Level)
-		})
+		return len(s.parts)
 	}
-	_ = w
-	return nil
+	return 0
 }
 
-// renderStorageRows is a generic renderer: filter + bar scaling + row
-// assembly, delegating naming and formatting to callbacks.
-func renderStorageRows[T any](
-	items []T,
-	filter string,
-	key func(T) (name string, bytes, rows uint64),
-	format func(T, string, float64) string,
-) []string {
-	if len(items) == 0 {
-		return []string{"  (empty)"}
+// storageTableStyles returns bubbles/table styles that match the monitor's
+// AccentBlue / TextMuted / BgDark palette so the Storage tab blends with the
+// rest of the UI.
+func storageTableStyles() table.Styles {
+	t := uitheme.Active
+	return table.Styles{
+		Header: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(t.AccentBlue)).
+			Padding(0, 1).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(t.Border)).
+			BorderBottom(true),
+		Cell: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.TextPrimary)).
+			Padding(0, 1),
+		Selected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.BgDark)).
+			Background(lipgloss.Color(t.AccentBlue)).
+			Bold(true).
+			Padding(0, 1),
 	}
-	needle := strings.ToLower(filter)
-	var kept []T
-	for _, it := range items {
-		name, _, _ := key(it)
-		if filter == "" || strings.Contains(strings.ToLower(name), needle) {
-			kept = append(kept, it)
-		}
-	}
-	if len(kept) == 0 {
-		return []string{"  (no matches)"}
-	}
-	var maxBytes uint64
-	for _, it := range kept {
-		_, b, _ := key(it)
-		if b > maxBytes {
-			maxBytes = b
-		}
-	}
-	rows := make([]string, 0, len(kept))
-	for _, it := range kept {
-		_, b, _ := key(it)
-		var pct float64
-		if maxBytes > 0 {
-			pct = float64(b) / float64(maxBytes)
-		}
-		bar := storageBar(pct)
-		rows = append(rows, format(it, bar, pct))
-	}
-	return rows
 }
 
 func storageBar(pct float64) string {
