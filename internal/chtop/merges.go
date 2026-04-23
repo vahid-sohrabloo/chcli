@@ -40,7 +40,7 @@ SELECT
     database, table, elapsed, progress, num_parts,
     toString(source_part_names)                   AS source_part_names,
     result_part_name,
-    total_size_bytes_compressed, merged_rows,
+    total_size_bytes_compressed, rows_read,
     toUInt8(is_mutation)                          AS is_mutation
 FROM system.merges
 ORDER BY elapsed DESC

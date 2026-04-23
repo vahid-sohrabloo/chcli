@@ -112,6 +112,12 @@ func (c *chartsTab) onPanels(panels []chtop.Panel) {
 func (c *chartsTab) Update(msg tea.Msg) tea.Cmd {
 	switch v := msg.(type) {
 	case chartsTickMsg:
+		// If bootstrap failed earlier, retry it on the next tick so the tab
+		// recovers once the server is healthy again. Otherwise the tab would
+		// stay stuck on the error until the user presses `r`.
+		if c.bootErr != nil || len(c.panels) == 0 {
+			return tea.Batch(c.bootstrapCmd(), c.tickCmd())
+		}
 		return tea.Batch(c.refreshAllCmd(), c.tickCmd())
 	case chartsBootstrapMsg:
 		c.bootErr = v.err

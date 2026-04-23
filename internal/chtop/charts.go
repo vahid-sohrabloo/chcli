@@ -62,12 +62,26 @@ func LoadDashboard(ctx context.Context, q ParamQuerier, name string) ([]Panel, e
 	return out, nil
 }
 
-// FetchPanelSeries runs a panel's SQL with the expected {rounding:UInt32} /
-// {seconds:UInt32} params and parses the result into time-series points.
+// FetchPanelSeries runs a panel's SQL with the parameters that ClickHouse
+// dashboards accept across versions:
+//   - {rounding:UInt32}  — older dashboards
+//   - {seconds:UInt32}   — older dashboards
+//   - {from:DateTime}    — newer (≥ 26.x) dashboards
+//   - {to:DateTime}      — newer (≥ 26.x) dashboards
+//
+// Supplying extra parameters a panel doesn't reference is harmless on the
+// server side, so we always send all four and let each panel pick what it
+// needs.
 func FetchPanelSeries(ctx context.Context, q ParamQuerier, sql string, roundingSeconds, lookbackSeconds uint32) ([]Point, error) {
+	to := time.Now().UTC()
+	from := to.Add(-time.Duration(lookbackSeconds) * time.Second)
+	const dtLayout = "2006-01-02 15:04:05"
+
 	res, err := q.QueryAllWithParams(ctx, sql,
 		conn.UintParam("rounding", roundingSeconds),
-		conn.UintParam("seconds", lookbackSeconds))
+		conn.UintParam("seconds", lookbackSeconds),
+		conn.StringParam("from", from.Format(dtLayout)),
+		conn.StringParam("to", to.Format(dtLayout)))
 	if err != nil {
 		return nil, fmt.Errorf("panel fetch: %w", err)
 	}

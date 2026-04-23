@@ -50,12 +50,24 @@ func Connect(ctx context.Context, connStr string) (*Conn, error) {
 
 // QueryAll executes a SQL query and returns ALL rows (no row limit).
 // Used for internal queries like schema loading.
+//
+// If chconn reports the connection as closed after a query (chconn tears the
+// socket down after any server-side protocol error), QueryAll reconnects and
+// retries the query once before surfacing the error. This keeps monitoring
+// loops alive across transient SQL failures.
 func (c *Conn) QueryAll(ctx context.Context, sql string) (*QueryResult, error) {
 	start := time.Now()
 
 	rows, err := c.raw.Query(ctx, sql)
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		if c.raw.IsClosed() {
+			if rerr := c.Reconnect(ctx); rerr == nil {
+				rows, err = c.raw.Query(ctx, sql)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("query: %w", err)
+		}
 	}
 	defer rows.Close()
 
@@ -256,9 +268,9 @@ func formatValue(v any) string {
 	case uint64:
 		return strconv.FormatUint(val, 10)
 	case float32:
-		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(float64(val), 'f', -1, 32), "0"), ".")
+		return trimFloatZeros(strconv.FormatFloat(float64(val), 'f', -1, 32))
 	case float64:
-		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(val, 'f', -1, 64), "0"), ".")
+		return trimFloatZeros(strconv.FormatFloat(val, 'f', -1, 64))
 	case map[string]any:
 		pairs := make([]string, 0, len(val))
 		for k, mv := range val {
@@ -422,13 +434,21 @@ func StringParam(name, v string) chconn.Parameter {
 
 // QueryAllWithParams is QueryAll but passes chconn parameters through to the
 // server so SQL using {name:Type} placeholders (e.g. the queries in
-// system.dashboards) can be executed.
+// system.dashboards) can be executed. Same reconnect-on-close retry as
+// QueryAll.
 func (c *Conn) QueryAllWithParams(ctx context.Context, sql string, params ...chconn.Parameter) (*QueryResult, error) {
 	start := time.Now()
 
 	rows, err := c.raw.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		if c.raw.IsClosed() {
+			if rerr := c.Reconnect(ctx); rerr == nil {
+				rows, err = c.raw.Query(ctx, sql, params...)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("query: %w", err)
+		}
 	}
 	defer rows.Close()
 
@@ -457,4 +477,18 @@ func (c *Conn) QueryAllWithParams(ctx context.Context, sql string, params ...chc
 	}
 	result.Elapsed = time.Since(start)
 	return result, nil
+}
+
+// trimFloatZeros drops trailing zeros from the fractional part of a
+// FormatFloat('f', -1) output (e.g. "1.2300" -> "1.23") and the trailing
+// "." when no digits remain. It is careful NOT to touch the integer part
+// when there's no decimal point at all — "3600" must stay "3600", not
+// become "36".
+func trimFloatZeros(s string) string {
+	if !strings.Contains(s, ".") {
+		return s
+	}
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
 }

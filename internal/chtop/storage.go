@@ -52,13 +52,15 @@ FROM   system.parts WHERE active
 GROUP  BY database ORDER BY bytes DESC
 ` + suppressLogging
 
+// sqlTables — bytes_per_row is computed client-side; ClickHouse rejects
+// referencing an aggregate alias (e.g. sum(rows) AS rows) from inside
+// another aggregate expression.
 const sqlTables = `
 SELECT table,
-       count()                                                   AS parts,
-       sum(bytes_on_disk)                                        AS bytes,
-       sum(rows)                                                 AS rows,
-       sum(marks)                                                AS marks,
-       if(sum(rows) > 0, round(sum(bytes_on_disk)/sum(rows),1), 0) AS bytes_per_row
+       count()             AS parts,
+       sum(bytes_on_disk)  AS bytes,
+       sum(rows)           AS row_count,
+       sum(marks)          AS marks
 FROM   system.parts WHERE active AND database = {db:String}
 GROUP  BY table ORDER BY bytes DESC
 ` + suppressLogging
@@ -147,8 +149,8 @@ func parseDatabases(qr *conn.QueryResult) ([]DBRow, error) {
 func parseTables(qr *conn.QueryResult) ([]TableRow, error) {
 	out := make([]TableRow, 0, len(qr.Rows))
 	for i, row := range qr.Rows {
-		if len(row) < 6 {
-			return nil, fmt.Errorf("row %d: expected 6 cols, got %d", i, len(row))
+		if len(row) < 5 {
+			return nil, fmt.Errorf("row %d: expected 5 cols, got %d", i, len(row))
 		}
 		parts, err := strconv.Atoi(row[1])
 		if err != nil {
@@ -157,7 +159,10 @@ func parseTables(qr *conn.QueryResult) ([]TableRow, error) {
 		bytes, _ := parseUint64Lenient(row[2])
 		rows, _ := parseUint64Lenient(row[3])
 		marks, _ := parseUint64Lenient(row[4])
-		bpr, _ := strconv.ParseFloat(row[5], 64)
+		var bpr float64
+		if rows > 0 {
+			bpr = float64(bytes) / float64(rows)
+		}
 		out = append(out, TableRow{
 			Name: row[0], Parts: parts, Bytes: bytes, Rows: rows,
 			Marks: marks, BytesPerRow: bpr,

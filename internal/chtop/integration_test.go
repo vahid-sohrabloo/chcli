@@ -173,7 +173,46 @@ func TestIntegrationLoadDashboardOverview(t *testing.T) {
 	}
 }
 
-func TestIntegrationFetchPanelSeries(t *testing.T) {
+// TestIntegrationFetchPanelSeriesParamPassing uses synthetic SQL with all
+// four parameter placeholders the dashboards use ({rounding}, {seconds},
+// {from}, {to}). If any parameter isn't being passed through correctly,
+// ClickHouse returns "Substitution `X` is not set" and the test fails.
+// Server-data availability does not affect this test.
+func TestIntegrationFetchPanelSeriesParamPassing(t *testing.T) {
+	if !clickhouseAvailable() {
+		t.Skip("CHCLI_TEST_HOST not set")
+	}
+	c := mustConnect(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	const sql = `
+        SELECT toStartOfInterval(parseDateTimeBestEffort('2026-04-22 12:00:00'),
+                                 INTERVAL {rounding:UInt32} SECOND) AS t,
+               toFloat64({seconds:UInt32}) AS v
+        WHERE parseDateTimeBestEffort({from:String}) <= now()
+          AND parseDateTimeBestEffort({to:String})   >= now()
+    `
+	pts, err := chtop.FetchPanelSeries(ctx, c, sql, 60, 3600)
+	if err != nil {
+		t.Fatalf("FetchPanelSeries (synthetic, checks param passing): %v", err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("points = %d, want 1", len(pts))
+	}
+	if pts[0].V != 3600 {
+		t.Errorf("V = %v, want 3600 (echoed from {seconds})", pts[0].V)
+	}
+}
+
+// TestIntegrationFetchPanelSeriesRealPanels exercises every Overview panel.
+// On a fresh / idle ClickHouse container most panels error with "no tables
+// satisfied provided regexp" because system.metric_log is still empty —
+// that's not a bug in our code, so the test logs per-panel results without
+// failing. It *does* fail if a param-substitution error appears (error 456),
+// because that's a bug we can fix.
+func TestIntegrationFetchPanelSeriesRealPanels(t *testing.T) {
 	if !clickhouseAvailable() {
 		t.Skip("CHCLI_TEST_HOST not set")
 	}
@@ -190,17 +229,30 @@ func TestIntegrationFetchPanelSeries(t *testing.T) {
 		t.Fatalf("LoadDashboard: %v", err)
 	}
 
-	// Run the first panel's SQL. On a near-empty test server the series may
-	// be empty; we're just verifying the parameterized query runs and parses.
-	pts, err := chtop.FetchPanelSeries(ctx, c, panels[0].SQL, 60, 3600)
-	if err != nil {
-		t.Fatalf("FetchPanelSeries(%q): %v", panels[0].Title, err)
-	}
-	for i, p := range pts {
-		if p.T.IsZero() {
-			t.Errorf("point %d has zero time", i)
+	successes, paramErrs := 0, 0
+	for _, panel := range panels {
+		pts, err := chtop.FetchPanelSeries(ctx, c, panel.SQL, 60, 3600)
+		if err != nil {
+			// Substitution errors (code 456) mean a parameter isn't being
+			// passed — that's a bug in FetchPanelSeries we should fix, not
+			// an environment issue.
+			if strings.Contains(err.Error(), "Substitution") {
+				t.Errorf("panel %q: missing parameter: %v", panel.Title, err)
+				paramErrs++
+			} else {
+				t.Logf("panel %q: %v (server-data issue; logged, not failed)", panel.Title, err)
+			}
+			continue
+		}
+		successes++
+		for i, p := range pts {
+			if p.T.IsZero() {
+				t.Errorf("panel %q point %d has zero time", panel.Title, i)
+			}
 		}
 	}
+	t.Logf("%d / %d Overview panels fetched; %d parameter bugs",
+		successes, len(panels), paramErrs)
 }
 
 // ---------- Storage drilldown ----------
