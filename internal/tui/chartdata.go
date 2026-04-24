@@ -169,3 +169,72 @@ func parseFloatCell(s string) (float64, bool) {
 	}
 	return v, true
 }
+
+type chartType int
+
+const (
+	chartLine chartType = iota
+	chartBar
+)
+
+// autoDetect picks initial X, Y, and chart type for a query result.
+//
+// Priority for X:
+//  1. first kindTime column                  -> chartLine
+//  2. first kindCategory or kindUnknown      -> chartBar
+//  3. fallback: column 0                     -> chartBar
+//
+// Y is the first kindNumeric column other than X (single series).
+// If no numeric column exists, Y is empty (non-chartable result).
+func autoDetect(res *conn.QueryResult) (xIdx int, yIdxs []int, ct chartType) {
+	kinds := make([]colKind, len(res.Columns))
+	for i, c := range res.Columns {
+		kinds[i] = classifyColumn(c.Type)
+	}
+
+	xIdx = -1
+	for i, k := range kinds {
+		if k == kindTime {
+			xIdx = i
+			ct = chartLine
+			break
+		}
+	}
+	if xIdx < 0 {
+		for i, k := range kinds {
+			if k == kindCategory || k == kindUnknown {
+				xIdx = i
+				ct = chartBar
+				break
+			}
+		}
+	}
+	// Still nothing? Fall back to the first column.
+	// If the result has any numeric column, that X will still produce a
+	// plottable chart (the numeric Y we pick below is a different column).
+	if xIdx < 0 && len(res.Columns) > 0 {
+		xIdx = 0
+		ct = chartBar
+	}
+
+	for i, k := range kinds {
+		if i == xIdx {
+			continue
+		}
+		if k == kindNumeric {
+			yIdxs = []int{i}
+			break
+		}
+	}
+	return xIdx, yIdxs, ct
+}
+
+// isChartable reports whether the result has at least one numeric column.
+func isChartable(res *conn.QueryResult) bool {
+	for _, c := range res.Columns {
+		if classifyColumn(c.Type) == kindNumeric {
+			return true
+		}
+	}
+	return false
+}

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,5 +146,99 @@ func TestParseRows_DateAndDateTime64(t *testing.T) {
 	p2 := parseRows(res2, 0, []int{1})
 	if len(p2.xTimes) != 1 {
 		t.Fatalf("DateTime64 xTimes len = %d, want 1", len(p2.xTimes))
+	}
+}
+
+func TestAutoDetectDefaults(t *testing.T) {
+	type result struct {
+		cols     []string // "name:Type"
+		xIdx     int
+		yIdxs    []int
+		chartKey chartType
+	}
+	mkRes := func(cols ...string) *conn.QueryResult {
+		out := &conn.QueryResult{}
+		for _, c := range cols {
+			parts := strings.SplitN(c, ":", 2)
+			out.Columns = append(out.Columns, conn.ResultColumn{Name: parts[0], Type: parts[1]})
+		}
+		return out
+	}
+
+	tests := []struct {
+		name string
+		res  *conn.QueryResult
+		want result
+	}{
+		{
+			name: "time + 1 numeric",
+			res:  mkRes("ts:DateTime", "count:UInt64"),
+			want: result{xIdx: 0, yIdxs: []int{1}, chartKey: chartLine},
+		},
+		{
+			name: "time + multi numeric",
+			res:  mkRes("ts:DateTime", "p50:Float64", "p95:Float64", "p99:Float64"),
+			want: result{xIdx: 0, yIdxs: []int{1}, chartKey: chartLine},
+		},
+		{
+			name: "category + numeric",
+			res:  mkRes("country:String", "n:UInt32"),
+			want: result{xIdx: 0, yIdxs: []int{1}, chartKey: chartBar},
+		},
+		{
+			name: "only numerics (no time/category) -> first col as X, second as Y",
+			res:  mkRes("a:Float64", "b:Float64"),
+			want: result{xIdx: 0, yIdxs: []int{1}, chartKey: chartBar},
+		},
+		{
+			name: "all string (no numeric) -> non-chartable",
+			res:  mkRes("name:String", "city:String"),
+			want: result{xIdx: 0, yIdxs: nil, chartKey: chartBar},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			x, ys, ct := autoDetect(tc.res)
+			if x != tc.want.xIdx || ct != tc.want.chartKey {
+				t.Errorf("got xIdx=%d chartType=%v, want %d %v",
+					x, ct, tc.want.xIdx, tc.want.chartKey)
+			}
+			if len(ys) != len(tc.want.yIdxs) {
+				t.Fatalf("yIdxs len = %d, want %d", len(ys), len(tc.want.yIdxs))
+			}
+			for i := range ys {
+				if ys[i] != tc.want.yIdxs[i] {
+					t.Errorf("yIdxs[%d] = %d, want %d", i, ys[i], tc.want.yIdxs[i])
+				}
+			}
+		})
+	}
+}
+
+func TestIsChartable(t *testing.T) {
+	mk := func(types ...string) *conn.QueryResult {
+		r := &conn.QueryResult{}
+		for i, ty := range types {
+			r.Columns = append(r.Columns, conn.ResultColumn{
+				Name: "c" + strconv.Itoa(i), Type: ty,
+			})
+		}
+		return r
+	}
+	cases := []struct {
+		res  *conn.QueryResult
+		want bool
+	}{
+		{mk("DateTime", "UInt64"), true},
+		{mk("String", "UInt32"), true},
+		{mk("String"), false},
+		{mk("String", "String"), false},
+		{mk("Int64"), true},
+	}
+	for i, c := range cases {
+		if got := isChartable(c.res); got != c.want {
+			t.Errorf("case %d: isChartable=%v, want %v", i, got, c.want)
+		}
 	}
 }
