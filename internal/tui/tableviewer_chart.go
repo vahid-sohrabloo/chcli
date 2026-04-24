@@ -1,11 +1,11 @@
 package tui
 
 import (
-	"fmt"
-
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	chlipgloss "github.com/charmbracelet/lipgloss"
 
+	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
 )
 
@@ -39,6 +39,36 @@ func newChartSubview(res *conn.QueryResult, width, height int, isWarp bool) *cha
 	c.nonChartable = !isChartable(res)
 	c.reparse()
 	return c
+}
+
+// chartDims returns (w, h) for the chart area inside the viewer body.
+// Returns (0, 0) if the area is too small to render.
+// Reserves 1 line for the header, 2 lines for the footer, and 1 line
+// for the legend that renders below the chart.
+func (c *chartSubview) chartDims() (int, int) {
+	w := c.width - 2
+	h := c.height - 4
+	if c.isWarp {
+		h -= 4
+	}
+	if w < 30 || h < 5 {
+		return 0, 0
+	}
+	return w, h
+}
+
+// seriesColors returns the fixed 6-color palette, sourced from ActiveTheme.
+func seriesColors() []string {
+	t := ActiveTheme
+	return []string{
+		t.AccentBlue, t.AccentGreen, t.AccentYellow,
+		t.AccentMagenta, t.AccentCyan, t.AccentOrange,
+	}
+}
+
+func paletteColor(idx int) string {
+	colors := seriesColors()
+	return colors[idx%len(colors)]
 }
 
 // reparse rebuilds parsedData from the current xIdx/yIdxs selection.
@@ -78,9 +108,71 @@ func (c *chartSubview) Update(msg tea.Msg, width, height int, isWarp bool) (bool
 }
 
 func (c *chartSubview) View() string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ActiveTheme.TextMuted)).
-		Render(fmt.Sprintf("  (chart placeholder — X=%d Y=%v)", c.xIdx, c.yIdxs))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextMuted))
+
+	w, h := c.chartDims()
+	if w == 0 {
+		return muted.Render("  Terminal too narrow")
+	}
+	if c.nonChartable {
+		return muted.Render("  No numeric columns to chart")
+	}
+	if len(c.yIdxs) == 0 {
+		return muted.Render("  No Y columns selected — press x to pick columns")
+	}
+
+	switch c.chartType {
+	case chartLine:
+		return c.renderLine(w, h)
+	default:
+		return muted.Render("  (bar chart placeholder — coming in the next task)")
+	}
+}
+
+func (c *chartSubview) renderLine(w, h int) string {
+	if len(c.parsed.xTimes) == 0 {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ActiveTheme.TextMuted)).
+			Render("  0 plottable rows")
+	}
+	lc := timeserieslinechart.New(w, h)
+	minX, maxX := c.parsed.xTimes[0], c.parsed.xTimes[0]
+	minY, maxY := c.parsed.ys[0][0], c.parsed.ys[0][0]
+	for _, t := range c.parsed.xTimes {
+		if t.Before(minX) {
+			minX = t
+		}
+		if t.After(maxX) {
+			maxX = t
+		}
+	}
+	for _, series := range c.parsed.ys {
+		for _, v := range series {
+			if v < minY {
+				minY = v
+			}
+			if v > maxY {
+				maxY = v
+			}
+		}
+	}
+	if minY == maxY {
+		minY -= 1
+		maxY += 1
+	}
+	lc.SetTimeRange(minX, maxX)
+	lc.SetYRange(minY, maxY)
+	lc.SetViewTimeAndYRange(minX, maxX, minY, maxY)
+
+	// Single series in this task; multi-series follows in Task 10.
+	series := c.parsed.ys[0]
+	style := chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(0)))
+	lc.SetStyle(style)
+	for i, t := range c.parsed.xTimes {
+		lc.Push(timeserieslinechart.TimePoint{Time: t, Value: series[i]})
+	}
+	lc.DrawBraille()
+	return lc.View()
 }
 
 func (c *chartSubview) footer(tv *tableViewerModel) string {
