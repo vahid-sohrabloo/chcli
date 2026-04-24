@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -167,15 +169,20 @@ func (c *chartSubview) renderLine(w, h int) string {
 	lc.SetYRange(minY, maxY)
 	lc.SetViewTimeAndYRange(minX, maxX, minY, maxY)
 
-	// Single series in this task; multi-series follows in Task 10.
-	series := c.parsed.ys[0]
-	style := chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(0)))
-	lc.SetStyle(style)
-	for i, t := range c.parsed.xTimes {
-		lc.Push(timeserieslinechart.TimePoint{Time: t, Value: series[i]})
+	for si, series := range c.parsed.ys {
+		name := c.result.Columns[c.yIdxs[si]].Name
+		style := chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(si)))
+		lc.SetDataSetStyle(name, style)
+		for i, t := range c.parsed.xTimes {
+			lc.PushDataSet(name, timeserieslinechart.TimePoint{Time: t, Value: series[i]})
+		}
 	}
-	lc.DrawBraille()
-	return lc.View()
+	names := make([]string, len(c.parsed.ys))
+	for si := range c.parsed.ys {
+		names[si] = c.result.Columns[c.yIdxs[si]].Name
+	}
+	lc.DrawBrailleDataSets(names)
+	return lc.View() + "\n" + c.legend(names)
 }
 
 func (c *chartSubview) footer(tv *tableViewerModel) string {
@@ -244,7 +251,31 @@ func (c *chartSubview) renderBar(w, h int) string {
 	}
 	bc.PushAll(bars)
 	bc.Draw()
-	return bc.View()
+	names := make([]string, len(c.yIdxs))
+	for si, idx := range c.yIdxs {
+		names[si] = c.result.Columns[idx].Name
+	}
+	return bc.View() + "\n" + c.legend(names)
+}
+
+func (c *chartSubview) legend(names []string) string {
+	var parts []string
+	for i, name := range names {
+		marker := lipgloss.NewStyle().Foreground(paletteColor2(i)).Render("●")
+		parts = append(parts, marker+" "+name)
+	}
+	line := strings.Join(parts, "  ")
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ActiveTheme.TextSecondary)).
+		Render("  " + line)
+}
+
+// paletteColor2 returns the palette color as a color.Color for use in
+// non-ntcharts rendering (legend, footer). paletteColor itself returns a
+// string usable by both v1 (ntcharts) and v2 style APIs via their Color ctors.
+func paletteColor2(idx int) color.Color {
+	colors := seriesColors()
+	return lipgloss.Color(colors[idx%len(colors)])
 }
 
 func truncate(s string, n int) string {
