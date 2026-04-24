@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"fmt"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	chlipgloss "github.com/charmbracelet/lipgloss"
 
+	"github.com/NimbleMarkets/ntcharts/barchart"
 	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
 )
@@ -125,7 +128,7 @@ func (c *chartSubview) View() string {
 	case chartLine:
 		return c.renderLine(w, h)
 	default:
-		return muted.Render("  (bar chart placeholder — coming in the next task)")
+		return c.renderBar(w, h)
 	}
 }
 
@@ -204,4 +207,52 @@ func (c *chartSubview) commitPicker() {
 	c.yIdxs = c.picker.sortedYIdxs()
 	c.picker = nil
 	c.reparse()
+}
+
+func (c *chartSubview) renderBar(w, h int) string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextMuted))
+
+	labels := c.parsed.xCats
+	if len(labels) == 0 {
+		labels = make([]string, len(c.parsed.xNums))
+		for i, v := range c.parsed.xNums {
+			labels[i] = fmt.Sprintf("%g", v)
+		}
+	}
+	if len(labels) == 0 {
+		return muted.Render("  0 plottable rows")
+	}
+
+	bc := barchart.New(w, h)
+	bc.SetHorizontal(true)
+
+	bars := make([]barchart.BarData, 0, len(labels))
+	for i, label := range labels {
+		values := make([]barchart.BarValue, 0, len(c.yIdxs))
+		for si, seriesIdx := range c.yIdxs {
+			series := c.parsed.ys[si]
+			values = append(values, barchart.BarValue{
+				Name:  c.result.Columns[seriesIdx].Name,
+				Value: series[i],
+				Style: chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(si))),
+			})
+		}
+		bars = append(bars, barchart.BarData{
+			Label:  truncate(label, 16),
+			Values: values,
+		})
+	}
+	bc.PushAll(bars)
+	bc.Draw()
+	return bc.View()
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return s[:n-1] + "…"
 }
