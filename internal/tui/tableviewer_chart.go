@@ -114,23 +114,48 @@ func (c *chartSubview) Update(msg tea.Msg, width, height int, isWarp bool) (bool
 
 func (c *chartSubview) View() string {
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextMuted))
-
 	w, h := c.chartDims()
 	if w == 0 {
 		return muted.Render("  Terminal too narrow")
 	}
+	body := c.chartBody(w, h)
+	if c.picker != nil {
+		return overlayPicker(body, c.picker.View(w/2, kindLabel), w, h)
+	}
+	return body
+}
+
+func (c *chartSubview) chartBody(w, h int) string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextMuted))
 	if c.nonChartable {
 		return muted.Render("  No numeric columns to chart")
 	}
 	if len(c.yIdxs) == 0 {
 		return muted.Render("  No Y columns selected — press x to pick columns")
 	}
-
 	switch c.chartType {
 	case chartLine:
 		return c.renderLine(w, h)
 	default:
 		return c.renderBar(w, h)
+	}
+}
+
+func overlayPicker(body, picker string, w, h int) string {
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, picker,
+		lipgloss.WithWhitespaceChars(" "))
+}
+
+func kindLabel(k colKind) string {
+	switch k {
+	case kindNumeric:
+		return "numeric"
+	case kindTime:
+		return "time"
+	case kindCategory:
+		return "category"
+	default:
+		return "other"
 	}
 }
 

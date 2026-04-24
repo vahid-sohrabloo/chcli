@@ -60,6 +60,9 @@ func (tv *tableViewerModel) Update(msg tea.Msg) (closed bool, cmd tea.Cmd) {
 			if tv.mode == modeTable {
 				if tv.chart == nil {
 					tv.chart = newChartSubview(tv.result, tv.width, tv.height, tv.isWarp)
+					if tv.chart.nonChartable {
+						tv.chart.openPicker()
+					}
 				}
 				tv.mode = modeChart
 			} else {
