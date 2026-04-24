@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"math"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -285,8 +287,26 @@ func (c *chartSubview) renderBar(w, h int) string {
 	labelStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextPrimary))
 	bc := barchart.New(w, h, barchart.WithStyles(axisStyle, labelStyle))
 
-	bars := make([]barchart.BarData, 0, len(labels))
+	names := make([]string, len(labels))
+	vals := make([]string, len(labels))
+	maxNameLen, maxValLen := 0, 0
 	for i, label := range labels {
+		names[i] = truncate(label, 16)
+		if len(names[i]) > maxNameLen {
+			maxNameLen = len(names[i])
+		}
+		var sum float64
+		for si := range c.yIdxs {
+			sum += c.parsed.ys[si][i]
+		}
+		vals[i] = formatBarValue(sum)
+		if len(vals[i]) > maxValLen {
+			maxValLen = len(vals[i])
+		}
+	}
+
+	bars := make([]barchart.BarData, 0, len(labels))
+	for i := range labels {
 		values := make([]barchart.BarValue, 0, len(c.yIdxs))
 		for si, seriesIdx := range c.yIdxs {
 			series := c.parsed.ys[si]
@@ -299,7 +319,7 @@ func (c *chartSubview) renderBar(w, h int) string {
 			})
 		}
 		bars = append(bars, barchart.BarData{
-			Label:  truncate(label, 16),
+			Label:  fmt.Sprintf("%-*s  %*s", maxNameLen, names[i], maxValLen, vals[i]),
 			Values: values,
 		})
 	}
@@ -308,11 +328,20 @@ func (c *chartSubview) renderBar(w, h int) string {
 	// the label column from m.data (empty pre-PushAll would leave labels invisible).
 	bc.SetHorizontal(true)
 	bc.Draw()
-	names := make([]string, len(c.yIdxs))
+	legendNames := make([]string, len(c.yIdxs))
 	for si, idx := range c.yIdxs {
-		names[si] = c.result.Columns[idx].Name
+		legendNames[si] = c.result.Columns[idx].Name
 	}
-	return bc.View() + "\n" + c.legend(names)
+	return bc.View() + "\n" + c.legend(legendNames)
+}
+
+// formatBarValue renders a bar's numeric value for its label: SI-abbreviated
+// for whole numbers (matches the rest of the TUI), %g for fractions.
+func formatBarValue(v float64) string {
+	if v >= 0 && v == math.Trunc(v) {
+		return formatNumber(uint64(v))
+	}
+	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
 func (c *chartSubview) legend(names []string) string {
