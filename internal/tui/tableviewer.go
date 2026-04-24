@@ -90,12 +90,16 @@ func (tv *tableViewerModel) View() string {
 	if tv.mode == modeChart {
 		label = "  CHART VIEWER"
 	}
+	queryEcho := collapseWhitespace(tv.query)
+	if budget := tv.width - len(label) - 4; budget > 0 && len(queryEcho) > budget {
+		queryEcho = queryEcho[:budget-1] + "…"
+	}
 	header := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.AccentBlue)).
 		Bold(true).
 		Render(label) +
 		lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary)).
-			Render("  "+tv.query)
+			Render("  "+queryEcho)
 
 	var body, footer string
 	switch tv.mode {
