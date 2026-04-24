@@ -26,8 +26,8 @@ func TestParseDatabaseRowsOrdersByBytes(t *testing.T) {
 }
 
 func TestFetchTablesUsesDBParam(t *testing.T) {
-	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 6)}}
-	_, err := FetchTables(context.Background(), q, "events")
+	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 8)}}
+	_, err := FetchTables(context.Background(), q, "events", "")
 	if err != nil {
 		t.Fatalf("FetchTables: %v", err)
 	}
@@ -45,19 +45,21 @@ func TestFetchTablesUsesDBParam(t *testing.T) {
 	}
 }
 
-func TestFetchPartitionsUsesTwoParams(t *testing.T) {
-	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 4)}}
-	_, err := FetchPartitions(context.Background(), q, "events", "hits")
+func TestFetchPartitionsUsesThreeParams(t *testing.T) {
+	// db + table + disk (disk="" means "no filter"; the param is still
+	// passed so the SQL's shape is constant across filtered/unfiltered).
+	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 9)}}
+	_, err := FetchPartitions(context.Background(), q, "events", "hits", "")
 	if err != nil {
 		t.Fatalf("FetchPartitions: %v", err)
 	}
-	if len(q.lastParams) != 2 {
-		t.Errorf("params = %d, want 2", len(q.lastParams))
+	if len(q.lastParams) != 3 {
+		t.Errorf("params = %d, want 3", len(q.lastParams))
 	}
 }
 
 func TestFetchPartsUsesThreeParams(t *testing.T) {
-	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 8)}}
+	q := &fakeParamQuerier{panel: &conn.QueryResult{Columns: make([]conn.ResultColumn, 11)}}
 	_, err := FetchParts(context.Background(), q, "events", "hits", "20260422")
 	if err != nil {
 		t.Fatalf("FetchParts: %v", err)

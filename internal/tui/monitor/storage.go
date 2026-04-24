@@ -60,6 +60,14 @@ type storagePartsMsg struct {
 	err  error
 }
 
+// detail fetch result messages — one per level.
+type (
+	storageDBDetailMsg        struct{ d chtop.DatabaseDetail; err error }
+	storageTableDetailMsg     struct{ d chtop.TableDetail; err error }
+	storagePartitionDetailMsg struct{ d chtop.PartitionDetail; err error }
+	storagePartDetailMsg      struct{ d chtop.PartDetail; err error }
+)
+
 type storageTab struct {
 	q chtop.ParamQuerier
 
@@ -68,14 +76,51 @@ type storageTab struct {
 	partitions []chtop.PartitionRow
 	parts      []chtop.PartRow
 
-	path    []string // e.g. ["events", "hits", "20260421"]
-	loading bool
-	err     error
-	sortBy  storageSort
+	path     []string // e.g. ["events", "hits", "20260421"]
+	loading  bool
+	err      error
+	sortBy   storageSort
+	sortDesc bool // true = descending (default for size/rows)
 
 	filter    string
 	filterBuf string
 	inFilter  bool
+
+	// Disk-name filter (applies at every level — a table/partition
+	// passes if any of its active parts lives on a matching disk).
+	// Independent from the name filter so you can combine them. The
+	// picker is modal UI for choosing from the disks actually in use at
+	// the current level.
+	diskFilter       string
+	inDiskPicker     bool
+	diskPickerOpts   []string // "(all disks)" + unique disks in use, lowercase
+	diskPickerCursor int
+
+	// Detail pane (opened with 'd' or Enter at leaf, or always-on in
+	// split view). Exactly one of detailDB / detailTable / detailPartition
+	// / detailPart is populated when inDetail is true. detailLoading is
+	// true while the fetch is in flight; detailErr holds any fetch error.
+	inDetail        bool
+	detailLoading   bool
+	detailErr       error
+	detailLevel     storageLevel
+	detailName      string
+	detailDB        chtop.DatabaseDetail
+	detailTable     chtop.TableDetail
+	detailPartition chtop.PartitionDetail
+	detailPart      chtop.PartDetail
+
+	// Split view: list on the left, auto-refreshing detail on the right.
+	// splitView is a toggle driven by `v`. When on, cursor moves fire a
+	// detail fetch for the newly-highlighted row; stale results land but
+	// are discarded by name comparison in the msg handlers.
+	splitView bool
+
+	// colOffset shifts the *data* columns left so levels with more cols
+	// than fit the viewport (partitions: 9 cols, parts: 8) can be
+	// scrolled sideways. The first (name) column stays pinned so the
+	// user always knows which row is which.
+	colOffset int
 
 	table         table.Model
 	visibleNames  []string // names of rows currently in the table, same order
@@ -83,19 +128,26 @@ type storageTab struct {
 }
 
 // NewStorageTab builds the Storage tab; q may be nil in tests.
+// Split view is on by default — the auto-refreshing detail pane is where
+// most of the value lives, and narrow terminals can toggle it off with v.
 func NewStorageTab(q chtop.ParamQuerier) Tab {
-	return &storageTab{q: q}
+	return &storageTab{q: q, sortDesc: true, splitView: true}
 }
 
 func (s *storageTab) Title() string        { return "Storage" }
-func (s *storageTab) HasActiveModal() bool { return s.inFilter }
+func (s *storageTab) HasActiveModal() bool { return s.inFilter || s.inDiskPicker || s.inDetail }
 func (s *storageTab) HelpKeys() []keyHint {
 	return []keyHint{
 		{"↑↓", "navigate"},
-		{"Enter/→", "drill in"},
-		{"←/Backspace", "up"},
-		{"/", "filter"},
+		{"←/→", "scroll columns"},
+		{"Enter", "drill in (leaf: details)"},
+		{"Backspace", "up"},
+		{"d", "details (full)"},
+		{"D", "filter by disk (parts)"},
+		{"v", "toggle split view"},
+		{"/", "filter name"},
 		{"s", "sort (size/rows/name)"},
+		{"S", "reverse sort"},
 		{"r", "refresh level"},
 	}
 }
@@ -120,13 +172,15 @@ func (s *storageTab) fetchCurrentLevel() tea.Cmd {
 			return storageDBsMsg{rows: rows, err: err}
 		}
 	case storageLevelTables:
+		disk := s.diskFilter
 		return func() tea.Msg {
-			rows, err := chtop.FetchTables(context.Background(), q, path[0])
+			rows, err := chtop.FetchTables(context.Background(), q, path[0], disk)
 			return storageTablesMsg{rows: rows, err: err}
 		}
 	case storageLevelPartitions:
+		disk := s.diskFilter
 		return func() tea.Msg {
-			rows, err := chtop.FetchPartitions(context.Background(), q, path[0], path[1])
+			rows, err := chtop.FetchPartitions(context.Background(), q, path[0], path[1], disk)
 			return storagePartitionsMsg{rows: rows, err: err}
 		}
 	case storageLevelParts:
@@ -143,25 +197,46 @@ func (s *storageTab) Update(msg tea.Msg) tea.Cmd {
 	case storageDBsMsg:
 		s.loading, s.err, s.dbs = false, v.err, v.rows
 		s.rebuildTable()
-		return nil
+		return s.refreshSplitDetail(true)
 	case storageTablesMsg:
 		s.loading, s.err, s.tables = false, v.err, v.rows
 		s.rebuildTable()
-		return nil
+		return s.refreshSplitDetail(true)
 	case storagePartitionsMsg:
 		s.loading, s.err, s.partitions = false, v.err, v.rows
 		s.rebuildTable()
-		return nil
+		return s.refreshSplitDetail(true)
 	case storagePartsMsg:
 		s.loading, s.err, s.parts = false, v.err, v.rows
 		s.rebuildTable()
+		return s.refreshSplitDetail(true)
+	case storageDBDetailMsg:
+		s.detailLoading, s.detailErr, s.detailDB = false, v.err, v.d
+		return nil
+	case storageTableDetailMsg:
+		s.detailLoading, s.detailErr, s.detailTable = false, v.err, v.d
+		return nil
+	case storagePartitionDetailMsg:
+		s.detailLoading, s.detailErr, s.detailPartition = false, v.err, v.d
+		return nil
+	case storagePartDetailMsg:
+		s.detailLoading, s.detailErr, s.detailPart = false, v.err, v.d
 		return nil
 	case tea.WindowSizeMsg:
 		s.width, s.height = v.Width, v.Height
 		s.rebuildTable()
 		return nil
 	case tea.KeyPressMsg:
-		return s.handleKey(v)
+		cmd := s.handleKey(v)
+		// When split view is on and we're not in a modal, the right pane
+		// should follow the cursor. refreshSplitDetail is a no-op when the
+		// cursor is on the same row, so it's safe to call after every key.
+		if s.splitView && !s.inDetail && !s.inFilter {
+			if rc := s.refreshSplitDetail(false); rc != nil {
+				return tea.Batch(cmd, rc)
+			}
+		}
+		return cmd
 	}
 	return nil
 }
@@ -170,20 +245,81 @@ func (s *storageTab) handleKey(kp tea.KeyPressMsg) tea.Cmd {
 	if s.inFilter {
 		return s.handleFilterKey(kp)
 	}
+	if s.inDiskPicker {
+		return s.handleDiskPickerKey(kp)
+	}
+	if s.inDetail {
+		// Any of these exits the detail pane and releases the modal. The
+		// tab's Esc/q stays captured here so the monitor container doesn't
+		// close the whole monitor view.
+		switch kp.Code {
+		case tea.KeyEscape, 'q', tea.KeyEnter, tea.KeyBackspace, 'd':
+			s.inDetail = false
+			s.detailErr = nil
+		}
+		return nil
+	}
+	// Shifted-letter detection: under the Kitty Keyboard Protocol (used by
+	// Warp, Kitty, Ghostty, and recent iTerm2 builds) Shift+s arrives as
+	// Code='s' with ModShift set, not as Code='S'. Handle both so Shift-
+	// bindings work on legacy and modern terminals alike.
+	shift := kp.Mod&tea.ModShift != 0
 	switch kp.Code {
-	case tea.KeyEnter, tea.KeyRight:
+	case tea.KeyEnter:
+		// At the leaf (parts) Enter opens detail since there's nothing
+		// left to drill into. At upper levels Enter drills as before.
+		if s.level() == storageLevelParts {
+			return s.openDetail()
+		}
 		return s.drillIn()
-	case tea.KeyBackspace, tea.KeyLeft:
+	case tea.KeyRight:
+		s.scrollColumns(+1)
+	case tea.KeyLeft:
+		s.scrollColumns(-1)
+	case 'd':
+		// 'd' alone opens full-screen details; Shift+D (arrives as 'd'
+		// with ModShift under Kitty-protocol terminals) opens the disk
+		// picker.
+		if shift {
+			s.openDiskPicker()
+			return nil
+		}
+		return s.openDetail()
+	case 'D':
+		s.openDiskPicker()
+		return nil
+	case 'v':
+		s.splitView = !s.splitView
+		s.rebuildTable()
+		if s.splitView {
+			return s.refreshSplitDetail(true)
+		}
+		return nil
+	case tea.KeyBackspace:
 		return s.drillOut()
 	case 'g':
-		s.table.GotoTop()
+		if shift {
+			s.table.GotoBottom()
+		} else {
+			s.table.GotoTop()
+		}
 	case 'G':
 		s.table.GotoBottom()
 	case '/':
 		s.inFilter = true
 		s.filterBuf = s.filter
 	case 's':
-		s.sortBy = (s.sortBy + 1) % 3
+		if shift {
+			s.sortDesc = !s.sortDesc
+		} else {
+			s.sortBy = (s.sortBy + 1) % 3
+			// Reset to the sort direction that matches user intuition for
+			// the new column (size/rows descending, name ascending).
+			s.sortDesc = s.sortBy != storageSortName
+		}
+		s.rebuildTable()
+	case 'S':
+		s.sortDesc = !s.sortDesc
 		s.rebuildTable()
 	case 'r':
 		return s.fetchCurrentLevel()
@@ -192,6 +328,97 @@ func (s *storageTab) handleKey(kp tea.KeyPressMsg) tea.Cmd {
 		var cmd tea.Cmd
 		s.table, cmd = s.table.Update(kp)
 		return cmd
+	}
+	return nil
+}
+
+// openDiskPicker collects the set of disks in use at the current level
+// from the already-loaded rows, prepends "(all disks)" as the clear-
+// filter option, and opens the picker modal. If no disk data is
+// available (e.g. at the root, where DBRow doesn't carry disk info),
+// the picker is not shown.
+func (s *storageTab) openDiskPicker() {
+	disks := s.disksInView()
+	if len(disks) == 0 {
+		return
+	}
+	s.diskPickerOpts = append([]string{""}, disks...) // "" slot = all disks
+	s.diskPickerCursor = 0
+	for i, d := range s.diskPickerOpts {
+		if d == s.diskFilter {
+			s.diskPickerCursor = i
+			break
+		}
+	}
+	s.inDiskPicker = true
+}
+
+// disksInView returns the unique disk names actually used by rows at
+// the current level. Returns nil at the root level since DBRow has no
+// disk aggregate (and filtering by disk at that level would need a
+// separate server query).
+func (s *storageTab) disksInView() []string {
+	seen := map[string]struct{}{}
+	add := func(ds []string) {
+		for _, d := range ds {
+			if d == "" {
+				continue
+			}
+			seen[d] = struct{}{}
+		}
+	}
+	switch s.level() {
+	case storageLevelRoot:
+		return nil
+	case storageLevelTables:
+		for _, r := range s.tables {
+			add(r.Disks)
+		}
+	case storageLevelPartitions:
+		for _, r := range s.partitions {
+			add(r.Disks)
+		}
+	case storageLevelParts:
+		for _, r := range s.parts {
+			if r.DiskName != "" {
+				seen[r.DiskName] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for d := range seen {
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s *storageTab) handleDiskPickerKey(kp tea.KeyPressMsg) tea.Cmd {
+	switch kp.Code {
+	case tea.KeyEscape, 'q':
+		s.inDiskPicker = false
+	case tea.KeyUp:
+		if s.diskPickerCursor > 0 {
+			s.diskPickerCursor--
+		}
+	case tea.KeyDown:
+		if s.diskPickerCursor < len(s.diskPickerOpts)-1 {
+			s.diskPickerCursor++
+		}
+	case tea.KeyEnter:
+		if s.diskPickerCursor >= 0 && s.diskPickerCursor < len(s.diskPickerOpts) {
+			s.diskFilter = s.diskPickerOpts[s.diskPickerCursor]
+		}
+		s.inDiskPicker = false
+		// Tables/Partitions aggregate server-side, so the disk filter
+		// requires a re-fetch for the sizes to be correct. Parts is
+		// filtered client-side (each part has one disk) so rebuild is
+		// enough there.
+		if s.level() == storageLevelTables || s.level() == storageLevelPartitions {
+			return s.fetchCurrentLevel()
+		}
+		s.rebuildTable()
+		s.table.SetCursor(0)
 	}
 	return nil
 }
@@ -230,7 +457,120 @@ func (s *storageTab) drillIn() tea.Cmd {
 	}
 	s.path = append(s.path, s.visibleNames[i])
 	s.filter = ""
+	s.diskFilter = ""
+	s.colOffset = 0
 	return s.fetchCurrentLevel()
+}
+
+// scrollColumns shifts the column offset by delta, clamped to the range
+// the current level supports. Drill in/out always resets offset to 0
+// since the new level has a different column set.
+func (s *storageTab) scrollColumns(delta int) {
+	maxOffset := s.maxColOffset()
+	next := s.colOffset + delta
+	if next < 0 {
+		next = 0
+	}
+	if next > maxOffset {
+		next = maxOffset
+	}
+	if next == s.colOffset {
+		return
+	}
+	s.colOffset = next
+	s.rebuildTable()
+}
+
+// maxColOffset returns the largest valid colOffset for the current
+// level — always (data columns) − 1 so that at the max offset at least
+// one data column remains visible alongside the pinned name column.
+func (s *storageTab) maxColOffset() int {
+	var total int
+	switch s.level() {
+	case storageLevelRoot:
+		total = 6
+	case storageLevelTables:
+		total = 7
+	case storageLevelPartitions:
+		total = 9
+	case storageLevelParts:
+		total = 8
+	}
+	if total <= 2 {
+		return 0
+	}
+	return total - 2
+}
+
+// refreshSplitDetail kicks off a detail fetch for the row under the cursor
+// when the split view is on and the cursor has moved to a new row since the
+// last fetch. force bypasses the "same row" short-circuit (used when the
+// user first turns split view on). Returns nil when there's nothing to
+// fetch — empty level, no querier, or cursor already matches.
+func (s *storageTab) refreshSplitDetail(force bool) tea.Cmd {
+	if s.q == nil || !s.splitView {
+		return nil
+	}
+	i := s.table.Cursor()
+	if i < 0 || i >= len(s.visibleNames) {
+		return nil
+	}
+	name := s.visibleNames[i]
+	if !force && name == s.detailName && s.detailLevel == s.level() {
+		return nil
+	}
+	return s.fetchDetailFor(name)
+}
+
+// fetchDetailFor sets up the in-flight state for a detail fetch of `name`
+// at the current level and returns the tea.Cmd that performs the query.
+// Used by both split-view auto-refresh and the full-screen openDetail.
+func (s *storageTab) fetchDetailFor(name string) tea.Cmd {
+	s.detailLoading = true
+	s.detailErr = nil
+	s.detailLevel = s.level()
+	s.detailName = name
+	q := s.q
+	path := append([]string(nil), s.path...)
+
+	switch s.level() {
+	case storageLevelRoot:
+		return func() tea.Msg {
+			d, err := chtop.FetchDatabaseDetail(context.Background(), q, name)
+			return storageDBDetailMsg{d: d, err: err}
+		}
+	case storageLevelTables:
+		return func() tea.Msg {
+			d, err := chtop.FetchTableDetail(context.Background(), q, path[0], name)
+			return storageTableDetailMsg{d: d, err: err}
+		}
+	case storageLevelPartitions:
+		return func() tea.Msg {
+			d, err := chtop.FetchPartitionDetail(context.Background(), q, path[0], path[1], name)
+			return storagePartitionDetailMsg{d: d, err: err}
+		}
+	case storageLevelParts:
+		return func() tea.Msg {
+			d, err := chtop.FetchPartDetail(context.Background(), q, path[0], path[1], name)
+			return storagePartDetailMsg{d: d, err: err}
+		}
+	}
+	return nil
+}
+
+// openDetail opens the full-screen detail pane for the row under the
+// cursor. The pane opens immediately in loading state so the user gets
+// feedback before the network round-trip completes.
+func (s *storageTab) openDetail() tea.Cmd {
+	if s.q == nil {
+		return nil
+	}
+	i := s.table.Cursor()
+	if i < 0 || i >= len(s.visibleNames) {
+		return nil
+	}
+	s.inDetail = true
+	return s.fetchDetailFor(s.visibleNames[i])
 }
 
 func (s *storageTab) drillOut() tea.Cmd {
@@ -239,6 +579,8 @@ func (s *storageTab) drillOut() tea.Cmd {
 	}
 	s.path = s.path[:len(s.path)-1]
 	s.filter = ""
+	s.diskFilter = ""
+	s.colOffset = 0
 	return s.fetchCurrentLevel()
 }
 
@@ -249,9 +591,37 @@ func (s *storageTab) rebuildTable() {
 	cols, rows, names := s.buildColumnsAndRows()
 	s.visibleNames = names
 
+	// Apply horizontal scroll offset if the user has pressed ←/→. The
+	// name column (index 0) stays pinned; offset slides the data cols.
+	if s.colOffset > 0 && len(cols) > 2 {
+		maxOff := s.maxColOffset()
+		if s.colOffset > maxOff {
+			s.colOffset = maxOff
+		}
+		slicedCols := make([]table.Column, 0, len(cols)-s.colOffset)
+		slicedCols = append(slicedCols, cols[0])
+		slicedCols = append(slicedCols, cols[1+s.colOffset:]...)
+		cols = slicedCols
+		for i := range rows {
+			r := make(table.Row, 0, len(cols))
+			r = append(r, rows[i][0])
+			r = append(r, rows[i][1+s.colOffset:]...)
+			rows[i] = r
+		}
+	}
+
+	// Full width always — the detail block stacks below the table, not
+	// beside it, so the column set never needs to shrink.
 	width := max(s.width-2, 40)
-	// Leave room for title row + tab bar + breadcrumb + filter + blank.
-	height := max(s.height-6, 5)
+	// Leave room for title + tab bar + breadcrumb + sort line + (optional
+	// filter line) + blank. 7 rows is tight but fits the normal case; the
+	// filter line only appears while it's open / active.
+	height := max(s.height-7, 5)
+	if s.splitView {
+		// The split-bottom detail block is a fixed-height strip below the
+		// table: one separator row + splitDetailLines summary rows.
+		height = max(height-splitDetailLines-1, 5)
+	}
 
 	s.table = table.New(
 		table.WithColumns(cols),
@@ -267,80 +637,144 @@ func (s *storageTab) rebuildTable() {
 	}
 }
 
+// sortIndicators are the suffix appended to the active-sort column header.
+// desc uses ▼, asc uses ▲ so direction is visible without opening help.
+const (
+	sortIndicatorDesc = " ▼"
+	sortIndicatorAsc  = " ▲"
+)
+
 // buildColumnsAndRows produces the per-level table definition plus a
 // parallel slice of item names (used by drillIn to look up the row under
 // the cursor in the source data).
 func (s *storageTab) buildColumnsAndRows() ([]table.Column, []table.Row, []string) {
-	// Column widths chosen so the layout fits reasonably at 100 cols.
+	// Column widths chosen so the layout fits reasonably at 120 cols.
 	// Widths include the bubbles/table default Padding(0, 1) on each cell.
 	const (
 		colSize    = 12
-		colBar     = 24
+		colBar     = 14
 		colPct     = 8
 		colNumeric = 10
+		colRatio   = 8
+		colTime    = 22
 	)
-	colName := max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+6), 20)
+
+	// Figure out which column the sort indicator attaches to.
+	sortBySize := s.sortBy == storageSortSize
+	sortByRows := s.sortBy == storageSortRows
+	sortByName := s.sortBy == storageSortName
+	desc := s.sortDesc
+
+	// fitName picks the smaller of "what the content actually needs"
+	// (max name len + small padding) and "what the remaining layout
+	// allows" — clamped to a sane min/max so the column doesn't vanish
+	// on short names or balloon on very long ones.
+	fitName := func(layoutMax int, names []string, label string) int {
+		contentMax := lipgloss.Width(label) + 2 // header padding
+		for _, n := range names {
+			if w := lipgloss.Width(n); w+2 > contentMax {
+				contentMax = w + 2
+			}
+		}
+		const nameMin, nameCap = 16, 60
+		w := contentMax
+		if w > layoutMax {
+			w = layoutMax
+		}
+		if w > nameCap {
+			w = nameCap
+		}
+		if w < nameMin {
+			w = nameMin
+		}
+		return w
+	}
 
 	switch s.level() {
 	case storageLevelRoot:
+		names := s.dbNames()
+		colName := fitName(max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+6), 20), names, "database")
 		cols := []table.Column{
-			{Title: "size", Width: colSize},
+			{Title: sortTitle("database", sortByName, desc), Width: colName},
+			{Title: sortTitle("size", sortBySize, desc), Width: colSize},
 			{Title: "", Width: colBar},
 			{Title: "%", Width: colPct},
-			{Title: "database", Width: colName},
 			{Title: "tables", Width: colNumeric},
-			{Title: "rows", Width: colNumeric},
+			{Title: sortTitle("rows", sortByRows, desc), Width: colNumeric},
 		}
-		return cols, s.buildDBRows(), s.dbNames()
+		return cols, s.buildDBRows(), names
 
 	case storageLevelTables:
+		names := s.tableNames()
+		colName := fitName(max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+colRatio+6), 20), names, "table")
 		cols := []table.Column{
-			{Title: "size", Width: colSize},
+			{Title: sortTitle("table", sortByName, desc), Width: colName},
+			{Title: sortTitle("size", sortBySize, desc), Width: colSize},
 			{Title: "", Width: colBar},
 			{Title: "%", Width: colPct},
-			{Title: "table", Width: colName},
 			{Title: "parts", Width: colNumeric},
-			{Title: "rows", Width: colNumeric},
+			{Title: sortTitle("rows", sortByRows, desc), Width: colNumeric},
+			{Title: "comp", Width: colRatio},
 		}
-		return cols, s.buildTableRows(), s.tableNames()
+		return cols, s.buildTableRows(), names
 
 	case storageLevelPartitions:
+		names := s.partitionNames()
+		colName := fitName(max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+colRatio+colTime+colTime+6), 20), names, "partition")
 		cols := []table.Column{
-			{Title: "size", Width: colSize},
+			{Title: sortTitle("partition", sortByName, desc), Width: colName},
+			{Title: sortTitle("size", sortBySize, desc), Width: colSize},
 			{Title: "", Width: colBar},
 			{Title: "%", Width: colPct},
-			{Title: "partition", Width: colName},
 			{Title: "parts", Width: colNumeric},
-			{Title: "rows", Width: colNumeric},
+			{Title: sortTitle("rows", sortByRows, desc), Width: colNumeric},
+			{Title: "comp", Width: colRatio},
+			{Title: "min_time", Width: colTime},
+			{Title: "max_time", Width: colTime},
 		}
-		return cols, s.buildPartitionRows(), s.partitionNames()
+		return cols, s.buildPartitionRows(), names
 
 	case storageLevelParts:
+		names := s.partNames()
+		colName := fitName(max(s.width-(colSize+colBar+colPct+colNumeric+colNumeric+colRatio+colTime+6), 20), names, "part")
 		cols := []table.Column{
-			{Title: "size", Width: colSize},
+			{Title: sortTitle("part", sortByName, desc), Width: colName},
+			{Title: sortTitle("size", sortBySize, desc), Width: colSize},
 			{Title: "", Width: colBar},
 			{Title: "%", Width: colPct},
-			{Title: "part", Width: colName},
 			{Title: "lvl", Width: colNumeric},
-			{Title: "rows", Width: colNumeric},
+			{Title: sortTitle("rows", sortByRows, desc), Width: colNumeric},
+			{Title: "comp", Width: colRatio},
+			{Title: "disk·modified", Width: colTime},
 		}
-		return cols, s.buildPartRows(), s.partNames()
+		return cols, s.buildPartRows(), names
 	}
 	return nil, nil, nil
+}
+
+func sortTitle(name string, active, desc bool) string {
+	if !active {
+		return name
+	}
+	if desc {
+		return name + sortIndicatorDesc
+	}
+	return name + sortIndicatorAsc
 }
 
 // --- per-level row builders ---
 
 func (s *storageTab) buildDBRows() []table.Row {
 	items := s.sortDBs(s.filterDBs())
-	maxB := maxBytesDBs(items)
+	totB := totalBytesDBs(items)
 	rows := make([]table.Row, len(items))
 	for i, r := range items {
+		share := ratio(r.Bytes, totB)
 		rows[i] = table.Row{
-			humanBytesStorage(r.Bytes),
-			storageBar(ratio(r.Bytes, maxB)),
-			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
 			r.Name,
+			humanBytesStorage(r.Bytes),
+			storageBar(share),
+			formatShare(r.Bytes, totB),
 			strconv.Itoa(r.Tables),
 			humanCount(r.Rows),
 		}
@@ -359,16 +793,18 @@ func (s *storageTab) dbNames() []string {
 
 func (s *storageTab) buildTableRows() []table.Row {
 	items := s.sortTables(s.filterTables())
-	maxB := maxBytesTables(items)
+	totB := totalBytesTables(items)
 	rows := make([]table.Row, len(items))
 	for i, r := range items {
+		share := ratio(r.Bytes, totB)
 		rows[i] = table.Row{
-			humanBytesStorage(r.Bytes),
-			storageBar(ratio(r.Bytes, maxB)),
-			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
 			r.Name,
+			humanBytesStorage(r.Bytes),
+			storageBar(share),
+			formatShare(r.Bytes, totB),
 			strconv.Itoa(r.Parts),
 			humanCount(r.Rows),
+			formatRatio(r.Ratio()),
 		}
 	}
 	return rows
@@ -385,16 +821,20 @@ func (s *storageTab) tableNames() []string {
 
 func (s *storageTab) buildPartitionRows() []table.Row {
 	items := s.sortPartitions(s.filterPartitions())
-	maxB := maxBytesPartitions(items)
+	totB := totalBytesPartitions(items)
 	rows := make([]table.Row, len(items))
 	for i, r := range items {
+		share := ratio(r.Bytes, totB)
 		rows[i] = table.Row{
-			humanBytesStorage(r.Bytes),
-			storageBar(ratio(r.Bytes, maxB)),
-			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
 			r.Name,
+			humanBytesStorage(r.Bytes),
+			storageBar(share),
+			formatShare(r.Bytes, totB),
 			strconv.Itoa(r.Parts),
 			humanCount(r.Rows),
+			formatRatio(r.Ratio()),
+			shortTime(r.MinTime),
+			shortTime(r.MaxTime),
 		}
 	}
 	return rows
@@ -411,16 +851,19 @@ func (s *storageTab) partitionNames() []string {
 
 func (s *storageTab) buildPartRows() []table.Row {
 	items := s.sortParts(s.filterParts())
-	maxB := maxBytesParts(items)
+	totB := totalBytesParts(items)
 	rows := make([]table.Row, len(items))
 	for i, r := range items {
+		share := ratio(r.Bytes, totB)
 		rows[i] = table.Row{
-			humanBytesStorage(r.Bytes),
-			storageBar(ratio(r.Bytes, maxB)),
-			fmt.Sprintf("%.1f%%", ratio(r.Bytes, maxB)*100),
 			r.Name,
+			humanBytesStorage(r.Bytes),
+			storageBar(share),
+			formatShare(r.Bytes, totB),
 			strconv.Itoa(r.Level),
 			humanCount(r.Rows),
+			formatRatio(r.Ratio()),
+			r.DiskName + " · " + shortTime(r.ModificationTime),
 		}
 	}
 	return rows
@@ -451,6 +894,9 @@ func (s *storageTab) filterDBs() []chtop.DBRow {
 	return out
 }
 
+// filterTables applies only the name filter; the disk filter is handled
+// server-side by FetchTables so the aggregates (bytes/rows/…) reflect
+// only the matching disk.
 func (s *storageTab) filterTables() []chtop.TableRow {
 	if s.filter == "" {
 		return s.tables
@@ -465,6 +911,7 @@ func (s *storageTab) filterTables() []chtop.TableRow {
 	return out
 }
 
+// filterPartitions applies only the name filter; server-side handles disk.
 func (s *storageTab) filterPartitions() []chtop.PartitionRow {
 	if s.filter == "" {
 		return s.partitions
@@ -480,113 +927,199 @@ func (s *storageTab) filterPartitions() []chtop.PartitionRow {
 }
 
 func (s *storageTab) filterParts() []chtop.PartRow {
-	if s.filter == "" {
+	if s.filter == "" && s.diskFilter == "" {
 		return s.parts
 	}
 	needle := strings.ToLower(s.filter)
+	disk := strings.ToLower(s.diskFilter)
 	out := make([]chtop.PartRow, 0, len(s.parts))
 	for _, r := range s.parts {
-		if strings.Contains(strings.ToLower(r.Name), needle) {
-			out = append(out, r)
+		if needle != "" && !strings.Contains(strings.ToLower(r.Name), needle) {
+			continue
 		}
+		if disk != "" && !strings.Contains(strings.ToLower(r.DiskName), disk) {
+			continue
+		}
+		out = append(out, r)
 	}
 	return out
 }
 
 func (s *storageTab) sortDBs(items []chtop.DBRow) []chtop.DBRow {
 	sort.Slice(items, func(i, j int) bool {
+		var less bool
 		switch s.sortBy {
 		case storageSortRows:
-			return items[i].Rows > items[j].Rows
+			less = items[i].Rows < items[j].Rows
 		case storageSortName:
-			return items[i].Name < items[j].Name
+			less = items[i].Name < items[j].Name
 		default:
-			return items[i].Bytes > items[j].Bytes
+			less = items[i].Bytes < items[j].Bytes
 		}
+		if s.sortDesc {
+			return !less
+		}
+		return less
 	})
 	return items
 }
 
 func (s *storageTab) sortTables(items []chtop.TableRow) []chtop.TableRow {
 	sort.Slice(items, func(i, j int) bool {
+		var less bool
 		switch s.sortBy {
 		case storageSortRows:
-			return items[i].Rows > items[j].Rows
+			less = items[i].Rows < items[j].Rows
 		case storageSortName:
-			return items[i].Name < items[j].Name
+			less = items[i].Name < items[j].Name
 		default:
-			return items[i].Bytes > items[j].Bytes
+			less = items[i].Bytes < items[j].Bytes
 		}
+		if s.sortDesc {
+			return !less
+		}
+		return less
 	})
 	return items
 }
 
 func (s *storageTab) sortPartitions(items []chtop.PartitionRow) []chtop.PartitionRow {
 	sort.Slice(items, func(i, j int) bool {
+		var less bool
 		switch s.sortBy {
 		case storageSortRows:
-			return items[i].Rows > items[j].Rows
+			less = items[i].Rows < items[j].Rows
 		case storageSortName:
-			return items[i].Name < items[j].Name
+			less = items[i].Name < items[j].Name
 		default:
-			return items[i].Bytes > items[j].Bytes
+			less = items[i].Bytes < items[j].Bytes
 		}
+		if s.sortDesc {
+			return !less
+		}
+		return less
 	})
 	return items
 }
 
 func (s *storageTab) sortParts(items []chtop.PartRow) []chtop.PartRow {
 	sort.Slice(items, func(i, j int) bool {
+		var less bool
 		switch s.sortBy {
 		case storageSortRows:
-			return items[i].Rows > items[j].Rows
+			less = items[i].Rows < items[j].Rows
 		case storageSortName:
-			return items[i].Name < items[j].Name
+			less = items[i].Name < items[j].Name
 		default:
-			return items[i].Bytes > items[j].Bytes
+			less = items[i].Bytes < items[j].Bytes
 		}
+		if s.sortDesc {
+			return !less
+		}
+		return less
 	})
 	return items
 }
 
-func maxBytesDBs(items []chtop.DBRow) uint64 {
-	var m uint64
-	for _, r := range items {
-		if r.Bytes > m {
-			m = r.Bytes
+// levelTotals returns "N items · SIZE · ROWS rows · COMP×" for the header,
+// computed over the filtered slice so it reflects what's on screen.
+func (s *storageTab) levelTotals() string {
+	var count int
+	var size, rows, comp, uncomp uint64
+	switch s.level() {
+	case storageLevelRoot:
+		items := s.filterDBs()
+		count = len(items)
+		for _, r := range items {
+			size += r.Bytes
+			rows += r.Rows
 		}
+		return fmt.Sprintf("%d databases · %s · %s rows",
+			count, humanBytesStorage(size), humanCount(rows))
+
+	case storageLevelTables:
+		items := s.filterTables()
+		count = len(items)
+		for _, r := range items {
+			size += r.Bytes
+			rows += r.Rows
+			comp += r.Compressed
+			uncomp += r.Uncompressed
+		}
+		return fmt.Sprintf("%d tables · %s · %s rows · %s",
+			count, humanBytesStorage(size), humanCount(rows),
+			formatRatio(aggregateRatio(comp, uncomp)))
+
+	case storageLevelPartitions:
+		items := s.filterPartitions()
+		count = len(items)
+		for _, r := range items {
+			size += r.Bytes
+			rows += r.Rows
+			comp += r.Compressed
+			uncomp += r.Uncompressed
+		}
+		return fmt.Sprintf("%d partitions · %s · %s rows · %s",
+			count, humanBytesStorage(size), humanCount(rows),
+			formatRatio(aggregateRatio(comp, uncomp)))
+
+	case storageLevelParts:
+		items := s.filterParts()
+		count = len(items)
+		for _, r := range items {
+			size += r.Bytes
+			rows += r.Rows
+			comp += r.DataCompressed
+			uncomp += r.DataUncompressed
+		}
+		return fmt.Sprintf("%d parts · %s · %s rows · %s",
+			count, humanBytesStorage(size), humanCount(rows),
+			formatRatio(aggregateRatio(comp, uncomp)))
 	}
-	return m
+	return ""
 }
 
-func maxBytesTables(items []chtop.TableRow) uint64 {
-	var m uint64
-	for _, r := range items {
-		if r.Bytes > m {
-			m = r.Bytes
-		}
+// aggregateRatio returns uncompressed/compressed weighted across all parts,
+// which is more accurate than averaging individual ratios.
+func aggregateRatio(compressed, uncompressed uint64) float64 {
+	if compressed == 0 {
+		return 0
 	}
-	return m
+	return float64(uncompressed) / float64(compressed)
 }
 
-func maxBytesPartitions(items []chtop.PartitionRow) uint64 {
-	var m uint64
+// totalBytes* sum the level's bytes for share-of-total sizing of both the
+// bar and the "%" column.
+func totalBytesDBs(items []chtop.DBRow) uint64 {
+	var t uint64
 	for _, r := range items {
-		if r.Bytes > m {
-			m = r.Bytes
-		}
+		t += r.Bytes
 	}
-	return m
+	return t
 }
 
-func maxBytesParts(items []chtop.PartRow) uint64 {
-	var m uint64
+func totalBytesTables(items []chtop.TableRow) uint64 {
+	var t uint64
 	for _, r := range items {
-		if r.Bytes > m {
-			m = r.Bytes
-		}
+		t += r.Bytes
 	}
-	return m
+	return t
+}
+
+func totalBytesPartitions(items []chtop.PartitionRow) uint64 {
+	var t uint64
+	for _, r := range items {
+		t += r.Bytes
+	}
+	return t
+}
+
+func totalBytesParts(items []chtop.PartRow) uint64 {
+	var t uint64
+	for _, r := range items {
+		t += r.Bytes
+	}
+	return t
 }
 
 func ratio(b, m uint64) float64 {
@@ -594,6 +1127,24 @@ func ratio(b, m uint64) float64 {
 		return 0
 	}
 	return float64(b) / float64(m)
+}
+
+// formatShare renders a row's share of the level's total bytes, picking a
+// precision that stays readable whether one row dominates (99.8%) or rows
+// are spread evenly (0.4%).
+func formatShare(b, total uint64) string {
+	if total == 0 {
+		return "—"
+	}
+	pct := float64(b) * 100 / float64(total)
+	switch {
+	case pct >= 10:
+		return fmt.Sprintf("%.0f%%", pct)
+	case pct >= 1:
+		return fmt.Sprintf("%.1f%%", pct)
+	default:
+		return fmt.Sprintf("%.2f%%", pct)
+	}
 }
 
 // Reset clears the drilldown + all cached levels so the next display
@@ -604,6 +1155,11 @@ func (s *storageTab) Reset() tea.Cmd {
 	s.filter = ""
 	s.inFilter = false
 	s.filterBuf = ""
+	s.diskFilter = ""
+	s.inDiskPicker = false
+	s.diskPickerOpts = nil
+	s.diskPickerCursor = 0
+	s.colOffset = 0
 	s.dbs = nil
 	s.tables = nil
 	s.partitions = nil
@@ -646,15 +1202,42 @@ func (s *storageTab) View(w, h int) string {
 		return sb.String()
 	}
 
-	// Filter status line.
+	// Totals header + sort hint. Totals are computed over the currently
+	// filtered slice so the header reflects what's actually on screen.
+	dir := sortIndicatorDesc
+	if !s.sortDesc {
+		dir = sortIndicatorAsc
+	}
+	totals := s.levelTotals()
+	header := "  " + totals + "    sort: " + s.sortBy.String() + dir +
+		"  (s cycle · S reverse · / filter · D disk · r refresh)"
+	sb.WriteString(muted.Render(header) + "\n")
 	if s.inFilter {
 		sb.WriteString(muted.Render("  /filter: "+s.filterBuf+"│") + "\n")
 	} else if s.filter != "" {
 		sb.WriteString(muted.Render("  filter: "+s.filter) + "\n")
 	}
+	if s.diskFilter != "" {
+		sb.WriteString(muted.Render("  disk: "+s.diskFilter) + "\n")
+	}
+
+	if s.inDiskPicker {
+		sb.WriteString(s.renderDiskPicker())
+		return sb.String()
+	}
+
+	if s.inDetail {
+		sb.WriteString(s.renderDetail())
+		return sb.String()
+	}
 
 	if s.visibleCount() == 0 {
 		sb.WriteString(muted.Render("  (empty)"))
+		return sb.String()
+	}
+
+	if s.splitView {
+		sb.WriteString(s.renderSplit())
 		return sb.String()
 	}
 
@@ -700,10 +1283,36 @@ func storageTableStyles() table.Styles {
 	}
 }
 
+// storageBar renders a width-10 unicode bar where pct is the row's share of
+// the level's max (so the biggest row fills the whole bar). Empty cells are
+// spaces, not shaded blocks, so the bar reads cleanly on a highlighted row
+// where the table's Selected background would otherwise clash with ░.
 func storageBar(pct float64) string {
-	const width = 20
+	const width = 10
 	filled := min(max(int(pct*float64(width)), 0), width)
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	return strings.Repeat("█", filled) + strings.Repeat(" ", width-filled)
+}
+
+// formatRatio formats a compression ratio as "2.3×", "—" when unknown.
+func formatRatio(r float64) string {
+	if r <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f×", r)
+}
+
+// shortTime trims a ClickHouse-formatted DateTime ("2026-04-22 15:30:00") to
+// just the date + HH:MM when width is tight. Returns "—" for empty or
+// epoch-zero times.
+func shortTime(t string) string {
+	if t == "" || strings.HasPrefix(t, "1970-01-01") {
+		return "—"
+	}
+	// "2026-04-22 15:30:00" → "2026-04-22 15:30"
+	if len(t) >= 16 {
+		return t[:16]
+	}
+	return t
 }
 
 // humanBytesStorage formats bytes as "8.3 GB" / "512 MB" / "48 kB".

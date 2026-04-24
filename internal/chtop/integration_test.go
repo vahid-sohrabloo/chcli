@@ -291,7 +291,7 @@ func TestIntegrationStorageDrilldown(t *testing.T) {
 	}
 
 	// L1: tables in the seed db.
-	tables, err := chtop.FetchTables(ctx, c, db)
+	tables, err := chtop.FetchTables(ctx, c, db, "")
 	if err != nil {
 		t.Fatalf("FetchTables: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestIntegrationStorageDrilldown(t *testing.T) {
 	}
 
 	// L2: partitions under the seed table.
-	parts, err := chtop.FetchPartitions(ctx, c, db, "seed")
+	parts, err := chtop.FetchPartitions(ctx, c, db, "seed", "")
 	if err != nil {
 		t.Fatalf("FetchPartitions: %v", err)
 	}
