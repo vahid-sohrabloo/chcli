@@ -19,8 +19,13 @@ type Result struct {
 	IsQuery       bool   // if true, Output contains a query to execute
 	InsertToInput bool   // if true, insert Output into the input box instead of executing or printing
 	SetTheme      string // if non-empty, switch the highlighter to this theme name
-	OpenTop       bool   // if true, outer Model should open the \top alt-screen view
-	TopInterval   string // optional initial \top refresh interval (e.g. "5s", "500ms")
+	OpenMonitor   bool   // if true, outer Model should open \monitor
+	ActiveTab     string // which tab the monitor starts on: "processes" for \top, "" for default
+	TopInterval   string // optional initial refresh interval for the Processes tab (e.g. "5s", "500ms")
+
+	// Deprecated: kept for one release so external callers don't break. Always
+	// mirrors OpenMonitor.
+	OpenTop bool
 }
 
 // HandlerContext holds the shared context passed to all handlers.
@@ -124,6 +129,7 @@ func (r *Router) registerAll() {
 
 	// Live views
 	r.handlers["top"] = handleTop
+	r.handlers["monitor"] = handleMonitor
 
 	// System
 	r.handlers["refresh"] = handleRefresh

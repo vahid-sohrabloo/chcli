@@ -93,17 +93,24 @@ SQLite-backed query history with arrow-key browsing and fuzzy search (`Ctrl+R`).
 
 Re-run a query on an interval: `\watch 5 SELECT count() FROM events` runs every 5 seconds. `Ctrl+C` to stop.
 
-### `\top` — ClickHouse activity monitor
+### `\monitor` — multi-tab ClickHouse dashboard
 
-`\top` opens a full-screen live view (like Linux `top`, but for the server): active queries from `system.processes` plus headline metrics — uptime, active-query count, query/sec, insert-rows/sec, memory used/total, merges and mutations in progress, replica lag.
+`\monitor` opens a full-screen alt-screen dashboard with four tabs:
 
-Keys:
+- **Processes** — live `system.processes` (the previous `\top` view).
+- **Charts** — braille line-charts of every panel in `system.dashboards` (built-in `Overview`).
+- **Merges** — live `system.merges` + `system.mutations`.
+- **Storage** — ncdu-style drilldown through `system.parts` (database → table → partition → part).
 
-- `↑` `↓` move cursor — `←` `→` scroll columns — `Enter` full query detail
-- `s` cycle sort (elapsed / memory / rows) — `d` cycle refresh (default 2s; cycles 5s / 0.5s / 1s / 2s)
-- `/` filter — `k` kill selected query (with `[y/N]` confirm) — `q` / `Esc` exit
+Global keys:
 
-The polling SQLs carry `SETTINGS log_queries = 0, log_query_threads = 0, log_comment = 'chcli-top'`, so `\top` doesn't pollute `system.query_log` / `system.query_thread_log`.
+- `1`–`4` jump to a tab · `Tab` / `Shift+Tab` cycle · click a tab to switch
+- `?` help overlay shows global + active-tab keys
+- `q` / `Esc` quit (cancels the active modal first — filter, kill-confirm, detail)
+
+`\top` is an alias that opens the monitor directly on the Processes tab with the same keybindings as before. `\top 5s` / `\monitor 5s` overrides the initial refresh interval for the Processes tab.
+
+All polling SQLs carry `SETTINGS log_queries = 0, log_query_threads = 0, log_comment = 'chcli-monitor'` so the monitor doesn't flood `system.query_log`.
 
 ### Snippets
 
@@ -157,7 +164,8 @@ Save and recall frequently used queries:
 | `\doc <func>` | Show function documentation |
 | `\metrics` | Show last query metrics |
 | `\watch <sec> <query>` | Re-run query on interval |
-| `\top` | Live processes + metrics (full-screen) |
+| `\top` | Alias for `\monitor` focused on the Processes tab |
+| `\monitor` | Multi-tab dashboard: Processes, Charts, Merges, Storage |
 | `\theme [name]` | List or switch theme |
 | `\f [name]` | List or run snippet |
 | `\fs <name> <query>` | Save snippet |

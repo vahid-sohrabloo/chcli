@@ -403,6 +403,25 @@ func TestTopViewTopLevelViewContainsAllBands(t *testing.T) {
 	}
 }
 
+func TestTopModelSetSize(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	tv.SetSize(120, 40)
+	if tv.width != 120 || tv.height != 40 {
+		t.Errorf("size = %dx%d, want 120x40", tv.width, tv.height)
+	}
+}
+
+func TestTopModelModeAccessor(t *testing.T) {
+	tv := newTopView(nil, 80, 24)
+	if tv.Mode() != ModeNormal {
+		t.Errorf("Mode() = %v, want ModeNormal", tv.Mode())
+	}
+	tv.mode = modeFilter
+	if tv.Mode() != ModeFilter {
+		t.Errorf("Mode() after set = %v, want ModeFilter", tv.Mode())
+	}
+}
+
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }

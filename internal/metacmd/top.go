@@ -1,3 +1,4 @@
+// Package metacmd: \top and \monitor handlers.
 package metacmd
 
 import (
@@ -6,20 +7,35 @@ import (
 	"time"
 )
 
-// handleTop asks the outer Model to open the ClickHouse top alt-screen view.
-// Optional first argument is an initial refresh interval like "500ms", "1s",
-// "2s", or "5s" (anything time.ParseDuration accepts). Invalid durations
-// return an error; omitting the argument uses the default (1s).
+// handleTop opens the multi-tab monitor focused on the Processes tab.
+// Optional first argument is a refresh interval (e.g. "5s", "500ms").
 func handleTop(_ context.Context, _ *HandlerContext, args []string) (*Result, error) {
+	res, err := parseMonitorArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	res.ActiveTab = "processes"
+	return res, nil
+}
+
+// handleMonitor opens the multi-tab monitor on its default tab.
+// Optional first argument is a refresh interval (e.g. "5s", "500ms").
+func handleMonitor(_ context.Context, _ *HandlerContext, args []string) (*Result, error) {
+	return parseMonitorArgs(args)
+}
+
+func parseMonitorArgs(args []string) (*Result, error) {
+	res := &Result{OpenMonitor: true, OpenTop: true}
 	if len(args) == 0 {
-		return &Result{OpenTop: true}, nil
+		return res, nil
 	}
 	d, err := time.ParseDuration(args[0])
 	if err != nil {
-		return nil, fmt.Errorf("\\top: invalid interval %q: %w", args[0], err)
+		return nil, fmt.Errorf("invalid interval %q: %w", args[0], err)
 	}
 	if d <= 0 {
-		return nil, fmt.Errorf("\\top: interval must be positive, got %s", d)
+		return nil, fmt.Errorf("interval must be positive, got %s", d)
 	}
-	return &Result{OpenTop: true, TopInterval: d.String()}, nil
+	res.TopInterval = d.String()
+	return res, nil
 }
