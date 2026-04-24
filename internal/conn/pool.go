@@ -40,7 +40,7 @@ func OpenPool(ctx context.Context, connStr string) (*Pool, error) {
 // Close closes all pool connections and rejects future acquires.
 func (p *Pool) Close() { p.raw.Close() }
 
-// QueryAll runs sql through the pool and materialises every row.
+// QueryAll runs sql through the pool and materializes every row.
 // Satisfies chtop.Querier.
 func (p *Pool) QueryAll(ctx context.Context, sql string) (*QueryResult, error) {
 	return p.queryAll(ctx, sql)

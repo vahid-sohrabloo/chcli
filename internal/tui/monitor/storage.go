@@ -62,10 +62,22 @@ type storagePartsMsg struct {
 
 // detail fetch result messages — one per level.
 type (
-	storageDBDetailMsg        struct{ d chtop.DatabaseDetail; err error }
-	storageTableDetailMsg     struct{ d chtop.TableDetail; err error }
-	storagePartitionDetailMsg struct{ d chtop.PartitionDetail; err error }
-	storagePartDetailMsg      struct{ d chtop.PartDetail; err error }
+	storageDBDetailMsg struct {
+		d   chtop.DatabaseDetail
+		err error
+	}
+	storageTableDetailMsg struct {
+		d   chtop.TableDetail
+		err error
+	}
+	storagePartitionDetailMsg struct {
+		d   chtop.PartitionDetail
+		err error
+	}
+	storagePartDetailMsg struct {
+		d   chtop.PartDetail
+		err error
+	}
 )
 
 type storageTab struct {
@@ -467,13 +479,7 @@ func (s *storageTab) drillIn() tea.Cmd {
 // since the new level has a different column set.
 func (s *storageTab) scrollColumns(delta int) {
 	maxOffset := s.maxColOffset()
-	next := s.colOffset + delta
-	if next < 0 {
-		next = 0
-	}
-	if next > maxOffset {
-		next = maxOffset
-	}
+	next := min(max(s.colOffset+delta, 0), maxOffset)
 	if next == s.colOffset {
 		return
 	}
@@ -677,17 +683,7 @@ func (s *storageTab) buildColumnsAndRows() ([]table.Column, []table.Row, []strin
 			}
 		}
 		const nameMin, nameCap = 16, 60
-		w := contentMax
-		if w > layoutMax {
-			w = layoutMax
-		}
-		if w > nameCap {
-			w = nameCap
-		}
-		if w < nameMin {
-			w = nameMin
-		}
-		return w
+		return max(min(contentMax, layoutMax, nameCap), nameMin)
 	}
 
 	switch s.level() {

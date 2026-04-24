@@ -116,13 +116,13 @@ type PartDetail struct {
 	Rows             uint64
 	Bytes            uint64
 	Compressed       uint64
-	Uncompressed    uint64
-	Marks           uint64
-	PrimaryKeyMem   uint64
-	MinBlockNumber  int64
-	MaxBlockNumber  int64
-	MinTime         string
-	MaxTime         string
+	Uncompressed     uint64
+	Marks            uint64
+	PrimaryKeyMem    uint64
+	MinBlockNumber   int64
+	MaxBlockNumber   int64
+	MinTime          string
+	MaxTime          string
 	ModificationTime string
 	DiskName         string
 	Path             string

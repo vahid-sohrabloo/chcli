@@ -93,7 +93,7 @@ GROUP  BY database ORDER BY bytes DESC
 // another aggregate expression.
 // sqlTables — the disk filter is applied server-side so that
 // sum(bytes_on_disk) / sum(rows) / … reflect only parts on the chosen
-// disk. Passing {disk:''} disables the filter (matches every part).
+// disk. Passing an empty disk param disables the filter.
 const sqlTables = `
 SELECT table,
        count()                                                   AS parts,

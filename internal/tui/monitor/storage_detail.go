@@ -3,6 +3,7 @@ package monitor
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -470,7 +471,7 @@ func partDetailKV(d chtop.PartDetail) [][2]string {
 	return [][2]string{
 		{"name", d.Name},
 		{"type", d.PartType},
-		{"level", fmt.Sprintf("%d", d.Level)},
+		{"level", strconv.Itoa(d.Level)},
 		{"active", active},
 		{"", ""},
 		{"rows", humanCount(d.Rows)},
@@ -488,7 +489,7 @@ func partDetailKV(d chtop.PartDetail) [][2]string {
 		{"", ""},
 		{"disk", d.DiskName},
 		{"path", d.Path},
-		{"refcount", fmt.Sprintf("%d", d.Refcount)},
+		{"refcount", strconv.Itoa(d.Refcount)},
 	}
 }
 
@@ -524,5 +525,5 @@ func intOrDash(n int) string {
 	if n == 0 {
 		return "—"
 	}
-	return fmt.Sprintf("%d", n)
+	return strconv.Itoa(n)
 }
