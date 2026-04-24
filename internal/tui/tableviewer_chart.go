@@ -284,7 +284,6 @@ func (c *chartSubview) renderBar(w, h int) string {
 	axisStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextSecondary))
 	labelStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextPrimary))
 	bc := barchart.New(w, h, barchart.WithStyles(axisStyle, labelStyle))
-	bc.SetHorizontal(true)
 
 	bars := make([]barchart.BarData, 0, len(labels))
 	for i, label := range labels {
@@ -305,6 +304,9 @@ func (c *chartSubview) renderBar(w, h int) string {
 		})
 	}
 	bc.PushAll(bars)
+	// SetHorizontal after PushAll: it triggers origin recompute, which sizes
+	// the label column from m.data (empty pre-PushAll would leave labels invisible).
+	bc.SetHorizontal(true)
 	bc.Draw()
 	names := make([]string, len(c.yIdxs))
 	for si, idx := range c.yIdxs {
