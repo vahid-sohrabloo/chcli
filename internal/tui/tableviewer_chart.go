@@ -187,10 +187,36 @@ func (c *chartSubview) renderLine(w, h int) string {
 
 func (c *chartSubview) footer(tv *tableViewerModel) string {
 	t := ActiveTheme
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary)).
-		Render("  "+tv.footer) +
-		lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted)).
-			Render("  │  c table  q/Esc exit")
+	sep := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted)).Render("  │  ")
+	secondary := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted))
+
+	line1 := secondary.Render("  " + tv.footer)
+	if !c.nonChartable && len(c.yIdxs) > 0 {
+		xName := "(row index)"
+		if c.xIdx >= 0 {
+			xName = c.result.Columns[c.xIdx].Name
+		}
+		yNames := make([]string, len(c.yIdxs))
+		for i, idx := range c.yIdxs {
+			yNames[i] = c.result.Columns[idx].Name
+		}
+		line1 += sep + secondary.Render(
+			"X: "+xName+"  Y: "+strings.Join(yNames, ", "))
+	}
+	if c.parsed.dropped > 0 {
+		line1 += sep + muted.Render(
+			fmt.Sprintf("%d null rows skipped", c.parsed.dropped))
+	}
+
+	var hintText string
+	if c.pickerOpen() {
+		hintText = "Tab X/Y   Space toggle   Enter apply   Esc cancel"
+	} else {
+		hintText = "x pick cols   r reset   c table   q/Esc exit"
+	}
+	line2 := muted.Render("  " + hintText)
+	return line1 + "\n" + line2
 }
 
 func (c *chartSubview) pickerOpen() bool { return c.picker != nil }
