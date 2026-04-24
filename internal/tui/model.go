@@ -54,6 +54,7 @@ type schemaCacheMsg struct {
 // Model is the root bubbletea model for the chcli TUI.
 type Model struct {
 	conn        *conn.Conn
+	pool        *conn.Pool
 	config      *config.Config
 	cache       *schema.Cache
 	history     *history.Store
@@ -99,6 +100,7 @@ type Model struct {
 // NewModel creates the root TUI model, wiring together all sub-models.
 func NewModel(
 	c *conn.Conn,
+	pool *conn.Pool,
 	cfg *config.Config,
 	cache *schema.Cache,
 	hist *history.Store,
@@ -118,6 +120,7 @@ func NewModel(
 	m := &Model{
 		spinner:     sp,
 		conn:        c,
+		pool:        pool,
 		config:      cfg,
 		cache:       cache,
 		history:     hist,
@@ -626,7 +629,7 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 	// == "processes"; \monitor with "" (default — same first tab for v1).
 	if msg.result.OpenMonitor {
 		tv := newTopView(
-			chtop.NewFetcher(m.conn),
+			chtop.NewFetcher(m.pool),
 			m.width, m.height,
 		).WithKiller(m.conn).WithHighlighter(m.highlighter)
 		if msg.result.TopInterval != "" {
@@ -636,9 +639,9 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 		}
 		tabs := []monitor.Tab{
 			monitor.NewProcessesTab(tv),
-			monitor.NewMergesTab(m.conn),
-			monitor.NewChartsTab(m.conn),
-			monitor.NewStorageTab(m.conn),
+			monitor.NewMergesTab(m.pool),
+			monitor.NewChartsTab(m.pool),
+			monitor.NewStorageTab(m.pool),
 		}
 		mon := monitor.NewModel(tabs, 0, m.width, m.height)
 		m.monitorView = mon

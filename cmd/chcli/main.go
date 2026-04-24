@@ -124,13 +124,22 @@ func run(cmd *cobra.Command, args []string) error {
 		resolved.Port = uint16(tun.LocalPort())
 	}
 
-	// 4. Connect to ClickHouse.
+	// 4. Connect to ClickHouse. Two handles: the session *Conn for the
+	// REPL (USE/SET/named-SELECT state lives here) and a *Pool for the
+	// \monitor tabs' parallel polls so a protocol error on one panel does
+	// not take down the others.
 	connStr := resolved.ConnectionString()
 	c, err := conn.Connect(ctx, connStr)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer c.Close()
+
+	pool, err := conn.OpenPool(ctx, connStr)
+	if err != nil {
+		return fmt.Errorf("open pool: %w", err)
+	}
+	defer pool.Close()
 
 	// 5. Open history store.
 	histPath := filepath.Join(home, ".chcli", "history.db")
@@ -145,7 +154,7 @@ func run(cmd *cobra.Command, args []string) error {
 	cache := schema.New(connStr)
 
 	// 7. Launch TUI.
-	model := tui.NewModel(c, cfg, cache, hist, resolved)
+	model := tui.NewModel(c, pool, cfg, cache, hist, resolved)
 	p := tea.NewProgram(model)
 	model.SetProgram(p)
 	if _, err := p.Run(); err != nil {

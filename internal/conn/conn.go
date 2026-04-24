@@ -15,7 +15,10 @@ import (
 	"github.com/vahid-sohrabloo/chconn/v3/types"
 )
 
-// Conn wraps a chconn native ClickHouse connection.
+// Conn wraps a chconn native ClickHouse connection. It represents the
+// user REPL's session — USE/SET/named-SELECT state lives on this socket,
+// so there is exactly one goroutine driving it at a time. Concurrent
+// monitoring queries go through *Pool, not here.
 type Conn struct {
 	raw     chconn.Conn
 	connStr string
