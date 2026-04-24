@@ -281,7 +281,9 @@ func (c *chartSubview) renderBar(w, h int) string {
 		return muted.Render("  0 plottable rows")
 	}
 
-	bc := barchart.New(w, h)
+	axisStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextSecondary))
+	labelStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextPrimary))
+	bc := barchart.New(w, h, barchart.WithStyles(axisStyle, labelStyle))
 	bc.SetHorizontal(true)
 
 	bars := make([]barchart.BarData, 0, len(labels))
@@ -292,7 +294,9 @@ func (c *chartSubview) renderBar(w, h int) string {
 			values = append(values, barchart.BarValue{
 				Name:  c.result.Columns[seriesIdx].Name,
 				Value: series[i],
-				Style: chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(si))),
+				Style: chlipgloss.NewStyle().
+					Foreground(chlipgloss.Color(paletteColor(si))).
+					Background(chlipgloss.Color(paletteColor(si))),
 			})
 		}
 		bars = append(bars, barchart.BarData{
