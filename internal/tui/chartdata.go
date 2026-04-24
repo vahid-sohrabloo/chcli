@@ -1,6 +1,12 @@
 package tui
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vahid-sohrabloo/chcli/internal/conn"
+)
 
 type colKind int
 
@@ -69,4 +75,97 @@ func isCategoryType(t string) bool {
 		return true
 	}
 	return strings.HasPrefix(t, "Enum")
+}
+
+type parsedData struct {
+	xTimes  []time.Time
+	xCats   []string
+	xNums   []float64
+	ys      [][]float64
+	dropped int
+}
+
+// parseRows converts result rows into typed X/Y slices for charting.
+// A row is dropped (counted in dropped) if any selected Y is NULL or unparseable,
+// or if the X cell cannot be parsed for its kind.
+func parseRows(res *conn.QueryResult, xIdx int, yIdxs []int) parsedData {
+	xKind := classifyColumn(res.Columns[xIdx].Type)
+	p := parsedData{ys: make([][]float64, len(yIdxs))}
+
+	for _, row := range res.Rows {
+		xOk := true
+		var xT time.Time
+		var xN float64
+		var xC string
+
+		switch xKind {
+		case kindTime:
+			xT, xOk = parseTimeCell(row[xIdx])
+		case kindNumeric:
+			xN, xOk = parseFloatCell(row[xIdx])
+		default:
+			xC = row[xIdx]
+		}
+		if !xOk {
+			p.dropped++
+			continue
+		}
+
+		ys := make([]float64, len(yIdxs))
+		yOk := true
+		for i, yi := range yIdxs {
+			v, ok := parseFloatCell(row[yi])
+			if !ok {
+				yOk = false
+				break
+			}
+			ys[i] = v
+		}
+		if !yOk {
+			p.dropped++
+			continue
+		}
+
+		switch xKind {
+		case kindTime:
+			p.xTimes = append(p.xTimes, xT)
+		case kindNumeric:
+			p.xNums = append(p.xNums, xN)
+		default:
+			p.xCats = append(p.xCats, xC)
+		}
+		for i := range yIdxs {
+			p.ys[i] = append(p.ys[i], ys[i])
+		}
+	}
+	return p
+}
+
+var timeFormats = []string{
+	"2006-01-02 15:04:05.000",
+	"2006-01-02 15:04:05",
+	"2006-01-02",
+}
+
+func parseTimeCell(s string) (time.Time, bool) {
+	if s == "" || s == "NULL" {
+		return time.Time{}, false
+	}
+	for _, f := range timeFormats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseFloatCell(s string) (float64, bool) {
+	if s == "" || s == "NULL" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
 }
