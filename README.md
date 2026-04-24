@@ -75,6 +75,13 @@ Cancel any running query with `Ctrl+C` (sends `KILL QUERY` to the server).
 
 Press `F2` after a query to open a full-screen scrollable table viewer with column panning (`Left`/`Right`), row scrolling (`Up`/`Down`/`PgUp`/`PgDn`), and `q`/`Esc` to exit.
 
+Press `c` to toggle between the table and a chart view of the same data.
+Chart type is auto-detected — a line chart for time-series results (X is a
+`Date`/`DateTime`), a horizontal bar chart otherwise. Press `x` to open a
+column picker (X as radio, Y as multi-select for multiple overlaid
+series); `r` resets to auto-detected defaults. Rows with NULL values in
+selected columns are skipped; the footer shows the count when non-zero.
+
 ### SSH tunnel
 
 Connect to ClickHouse through an SSH bastion host. Reads `~/.ssh/config` for host aliases, so `--ssh-host myserver` just works if it's defined in your SSH config.
