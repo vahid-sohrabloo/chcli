@@ -26,6 +26,7 @@ type tableViewerModel struct {
 
 	mode  viewerMode
 	table *tableSubview
+	chart *chartSubview
 }
 
 func newTableViewer(result *conn.QueryResult, query string, width, height int) *tableViewerModel {
@@ -50,10 +51,29 @@ func (tv *tableViewerModel) Update(msg tea.Msg) (closed bool, cmd tea.Cmd) {
 	if kp, ok := msg.(tea.KeyPressMsg); ok {
 		switch kp.Code {
 		case tea.KeyEscape, 'q':
+			if tv.mode == modeChart && tv.chart != nil && tv.chart.pickerOpen() {
+				tv.chart.closePicker()
+				return false, nil
+			}
 			return true, nil
+		case 'c':
+			if tv.mode == modeTable {
+				if tv.chart == nil {
+					tv.chart = newChartSubview(tv.result, tv.width, tv.height, tv.isWarp)
+				}
+				tv.mode = modeChart
+			} else {
+				tv.mode = modeTable
+			}
+			return false, nil
 		}
 	}
 	switch tv.mode {
+	case modeChart:
+		if tv.chart != nil {
+			_, c := tv.chart.Update(msg, tv.width, tv.height, tv.isWarp)
+			return false, c
+		}
 	case modeTable:
 		_, c := tv.table.Update(msg, tv.width, tv.height, tv.isWarp)
 		return false, c
@@ -64,6 +84,9 @@ func (tv *tableViewerModel) Update(msg tea.Msg) (closed bool, cmd tea.Cmd) {
 func (tv *tableViewerModel) View() string {
 	t := ActiveTheme
 	label := "  TABLE VIEWER"
+	if tv.mode == modeChart {
+		label = "  CHART VIEWER"
+	}
 	header := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.AccentBlue)).
 		Bold(true).
@@ -71,15 +94,27 @@ func (tv *tableViewerModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary)).
 			Render("  "+tv.query)
 
-	footer := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary)).
+	var body, footer string
+	switch tv.mode {
+	case modeChart:
+		body = tv.chart.View()
+		footer = tv.chart.footer(tv)
+	default:
+		body = tv.table.View()
+		footer = tv.tableFooter()
+	}
+	return header + "\n" + body + "\n" + footer
+}
+
+func (tv *tableViewerModel) tableFooter() string {
+	t := ActiveTheme
+	out := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextSecondary)).
 		Render("  "+tv.footer) +
 		lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted)).
-			Render("  │  ↑↓ scroll  ←→ columns  q/Esc exit")
-
+			Render("  │  ↑↓ scroll  ←→ columns  c chart  q/Esc exit")
 	if tv.table != nil && tv.table.ColOffset() > 0 {
-		footer += lipgloss.NewStyle().Foreground(lipgloss.Color(t.AccentYellow)).
+		out += lipgloss.NewStyle().Foreground(lipgloss.Color(t.AccentYellow)).
 			Render(fmt.Sprintf("  │  col %d/%d", tv.table.ColOffset()+1, tv.table.TotalCols()))
 	}
-
-	return header + "\n" + tv.table.View() + "\n" + footer
+	return out
 }
