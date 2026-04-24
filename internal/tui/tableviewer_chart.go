@@ -141,7 +141,7 @@ func (c *chartSubview) chartBody(w, h int) string {
 	}
 }
 
-func overlayPicker(body, picker string, w, h int) string {
+func overlayPicker(_, picker string, w, h int) string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, picker,
 		lipgloss.WithWhitespaceChars(" "))
 }
@@ -310,7 +310,7 @@ func (c *chartSubview) renderBar(w, h int) string {
 }
 
 func (c *chartSubview) legend(names []string) string {
-	var parts []string
+	parts := make([]string, 0, len(names))
 	for i, name := range names {
 		marker := lipgloss.NewStyle().Foreground(paletteColor2(i)).Render("●")
 		parts = append(parts, marker+" "+name)

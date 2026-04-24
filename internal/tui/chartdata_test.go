@@ -151,7 +151,6 @@ func TestParseRows_DateAndDateTime64(t *testing.T) {
 
 func TestAutoDetectDefaults(t *testing.T) {
 	type result struct {
-		cols     []string // "name:Type"
 		xIdx     int
 		yIdxs    []int
 		chartKey chartType

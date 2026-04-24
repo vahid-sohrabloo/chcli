@@ -19,7 +19,6 @@ type pickerSubview struct {
 	xIdx   int
 	ySet   map[int]bool
 	edit   pickerEdit
-	scroll int
 }
 
 func newPickerSubview(kinds []colKind, names []string, xIdx int, yIdxs []int) *pickerSubview {
@@ -126,7 +125,7 @@ func (p *pickerSubview) View(width int, kindLabels func(colKind) string) string 
 	cursorStyle := rowStyle.Background(lipgloss.Color(t.BgOverlay))
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted))
 
-	var rows []string
+	rows := make([]string, 0, len(p.names))
 	for i, name := range p.names {
 		xMark := "○"
 		if i == p.xIdx {
