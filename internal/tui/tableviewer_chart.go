@@ -10,13 +10,44 @@ import (
 )
 
 type chartSubview struct {
-	result        *conn.QueryResult
+	result *conn.QueryResult
+	kinds  []colKind
+
+	xIdx         int
+	yIdxs        []int
+	chartType    chartType
+	nonChartable bool
+	parsed       parsedData
+
 	width, height int
 	isWarp        bool
 }
 
 func newChartSubview(res *conn.QueryResult, width, height int, isWarp bool) *chartSubview {
-	return &chartSubview{result: res, width: width, height: height, isWarp: isWarp}
+	c := &chartSubview{
+		result: res,
+		width:  width,
+		height: height,
+		isWarp: isWarp,
+	}
+	c.kinds = make([]colKind, len(res.Columns))
+	for i, col := range res.Columns {
+		c.kinds[i] = classifyColumn(col.Type)
+	}
+	c.xIdx, c.yIdxs, c.chartType = autoDetect(res)
+	c.nonChartable = !isChartable(res)
+	c.reparse()
+	return c
+}
+
+// reparse rebuilds parsedData from the current xIdx/yIdxs selection.
+// Skips when the result is non-chartable or no Ys selected.
+func (c *chartSubview) reparse() {
+	c.parsed = parsedData{}
+	if c.nonChartable || len(c.yIdxs) == 0 {
+		return
+	}
+	c.parsed = parseRows(c.result, c.xIdx, c.yIdxs)
 }
 
 func (c *chartSubview) Update(msg tea.Msg, width, height int, isWarp bool) (bool, tea.Cmd) {
@@ -27,7 +58,7 @@ func (c *chartSubview) Update(msg tea.Msg, width, height int, isWarp bool) (bool
 func (c *chartSubview) View() string {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ActiveTheme.TextMuted)).
-		Render(fmt.Sprintf("  (chart placeholder — %d rows)", len(c.result.Rows)))
+		Render(fmt.Sprintf("  (chart placeholder — X=%d Y=%v)", c.xIdx, c.yIdxs))
 }
 
 func (c *chartSubview) footer(tv *tableViewerModel) string {
