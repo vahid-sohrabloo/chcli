@@ -9,11 +9,11 @@ import (
 
 // UITheme defines all colors for the chcli TUI as hex strings.
 type UITheme struct {
-	Name                                                           string
-	BgDark, BgMain, BgSubtle, BgOverlay                            string
-	TextPrimary, TextSecondary, TextMuted                          string
+	Name                                                                                      string
+	BgDark, BgMain, BgSubtle, BgOverlay                                                       string
+	TextPrimary, TextSecondary, TextMuted                                                     string
 	AccentBlue, AccentGreen, AccentYellow, AccentOrange, AccentRed, AccentMagenta, AccentCyan string
-	Border                                                         string
+	Border                                                                                    string
 	// Matching chroma syntax theme name.
 	SyntaxTheme string
 }
