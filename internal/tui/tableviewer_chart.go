@@ -9,10 +9,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	chlipgloss "github.com/charmbracelet/lipgloss"
 
-	"github.com/NimbleMarkets/ntcharts/barchart"
-	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
+	"github.com/NimbleMarkets/ntcharts/v2/barchart"
+	"github.com/NimbleMarkets/ntcharts/v2/linechart/timeserieslinechart"
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
 )
 
@@ -198,7 +197,7 @@ func (c *chartSubview) renderLine(w, h int) string {
 
 	for si, series := range c.parsed.ys {
 		name := c.result.Columns[c.yIdxs[si]].Name
-		style := chlipgloss.NewStyle().Foreground(chlipgloss.Color(paletteColor(si)))
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(paletteColor(si)))
 		lc.SetDataSetStyle(name, style)
 		for i, t := range c.parsed.xTimes {
 			lc.PushDataSet(name, timeserieslinechart.TimePoint{Time: t, Value: series[i]})
@@ -283,8 +282,8 @@ func (c *chartSubview) renderBar(w, h int) string {
 		return muted.Render("  0 plottable rows")
 	}
 
-	axisStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextSecondary))
-	labelStyle := chlipgloss.NewStyle().Foreground(chlipgloss.Color(ActiveTheme.TextPrimary))
+	axisStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextSecondary))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ActiveTheme.TextPrimary))
 	bc := barchart.New(w, h, barchart.WithStyles(axisStyle, labelStyle))
 
 	names := make([]string, len(labels))
@@ -313,9 +312,9 @@ func (c *chartSubview) renderBar(w, h int) string {
 			values = append(values, barchart.BarValue{
 				Name:  c.result.Columns[seriesIdx].Name,
 				Value: series[i],
-				Style: chlipgloss.NewStyle().
-					Foreground(chlipgloss.Color(paletteColor(si))).
-					Background(chlipgloss.Color(paletteColor(si))),
+				Style: lipgloss.NewStyle().
+					Foreground(lipgloss.Color(paletteColor(si))).
+					Background(lipgloss.Color(paletteColor(si))),
 			})
 		}
 		bars = append(bars, barchart.BarData{
@@ -358,7 +357,7 @@ func (c *chartSubview) legend(names []string) string {
 
 // paletteColor2 returns the palette color as a color.Color for use in
 // non-ntcharts rendering (legend, footer). paletteColor itself returns a
-// string usable by both v1 (ntcharts) and v2 style APIs via their Color ctors.
+// string usable by lipgloss.Color via its string Color ctor.
 func paletteColor2(idx int) color.Color {
 	colors := seriesColors()
 	return lipgloss.Color(colors[idx%len(colors)])
