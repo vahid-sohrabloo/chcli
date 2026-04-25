@@ -13,7 +13,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/kevinburke/ssh_config v1.6.0
 	github.com/spf13/cobra v1.10.2
-	github.com/vahid-sohrabloo/chconn/v3 v3.0.0-beta27
+	github.com/vahid-sohrabloo/chconn/v3 v3.0.0-beta9
 	golang.org/x/crypto v0.50.0
 	modernc.org/sqlite v1.48.2
 )
@@ -37,10 +37,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/kelindar/bitmap v1.5.2 // indirect
-	github.com/kelindar/simd v1.1.2 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/lrstanley/bubblezone v0.0.0-20240914071701-b48c55a5e78e // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
