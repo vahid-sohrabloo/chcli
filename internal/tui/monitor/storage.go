@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,8 @@ import (
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
 	"github.com/vahid-sohrabloo/chcli/internal/uitheme"
 )
+
+const storageFetchTimeout = 10 * time.Second
 
 type storageLevel int
 
@@ -79,6 +82,8 @@ type (
 		err error
 	}
 )
+
+var _ Tab = (*storageTab)(nil)
 
 type storageTab struct {
 	q chtop.ParamQuerier
@@ -180,24 +185,32 @@ func (s *storageTab) fetchCurrentLevel() tea.Cmd {
 	switch s.level() {
 	case storageLevelRoot:
 		return func() tea.Msg {
-			rows, err := chtop.FetchDatabases(context.Background(), q)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			rows, err := chtop.FetchDatabases(ctx, q)
 			return storageDBsMsg{rows: rows, err: err}
 		}
 	case storageLevelTables:
 		disk := s.diskFilter
 		return func() tea.Msg {
-			rows, err := chtop.FetchTables(context.Background(), q, path[0], disk)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			rows, err := chtop.FetchTables(ctx, q, path[0], disk)
 			return storageTablesMsg{rows: rows, err: err}
 		}
 	case storageLevelPartitions:
 		disk := s.diskFilter
 		return func() tea.Msg {
-			rows, err := chtop.FetchPartitions(context.Background(), q, path[0], path[1], disk)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			rows, err := chtop.FetchPartitions(ctx, q, path[0], path[1], disk)
 			return storagePartitionsMsg{rows: rows, err: err}
 		}
 	case storageLevelParts:
 		return func() tea.Msg {
-			rows, err := chtop.FetchParts(context.Background(), q, path[0], path[1], path[2])
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			rows, err := chtop.FetchParts(ctx, q, path[0], path[1], path[2])
 			return storagePartsMsg{rows: rows, err: err}
 		}
 	}
@@ -542,22 +555,30 @@ func (s *storageTab) fetchDetailFor(name string) tea.Cmd {
 	switch s.level() {
 	case storageLevelRoot:
 		return func() tea.Msg {
-			d, err := chtop.FetchDatabaseDetail(context.Background(), q, name)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			d, err := chtop.FetchDatabaseDetail(ctx, q, name)
 			return storageDBDetailMsg{d: d, err: err}
 		}
 	case storageLevelTables:
 		return func() tea.Msg {
-			d, err := chtop.FetchTableDetail(context.Background(), q, path[0], name)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			d, err := chtop.FetchTableDetail(ctx, q, path[0], name)
 			return storageTableDetailMsg{d: d, err: err}
 		}
 	case storageLevelPartitions:
 		return func() tea.Msg {
-			d, err := chtop.FetchPartitionDetail(context.Background(), q, path[0], path[1], name)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			d, err := chtop.FetchPartitionDetail(ctx, q, path[0], path[1], name)
 			return storagePartitionDetailMsg{d: d, err: err}
 		}
 	case storageLevelParts:
 		return func() tea.Msg {
-			d, err := chtop.FetchPartDetail(context.Background(), q, path[0], path[1], name)
+			ctx, cancel := context.WithTimeout(context.Background(), storageFetchTimeout)
+			defer cancel()
+			d, err := chtop.FetchPartDetail(ctx, q, path[0], path[1], name)
 			return storagePartDetailMsg{d: d, err: err}
 		}
 	}

@@ -15,7 +15,10 @@ import (
 	"github.com/vahid-sohrabloo/chcli/internal/uitheme"
 )
 
-const chartsRefreshInterval = 30 * time.Second
+const (
+	chartsRefreshInterval = 30 * time.Second
+	chartsFetchTimeout    = 10 * time.Second
+)
 
 var lookbackCycle = []time.Duration{15 * time.Minute, time.Hour, 6 * time.Hour, 24 * time.Hour}
 var bucketCycle = []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute, 15 * time.Minute}
@@ -30,6 +33,8 @@ type chartsSeriesMsg struct {
 	err    error
 }
 type chartsTickMsg time.Time
+
+var _ Tab = (*chartsTab)(nil)
 
 type chartsTab struct {
 	q         chtop.ParamQuerier
@@ -71,7 +76,9 @@ func (c *chartsTab) bootstrapCmd() tea.Cmd {
 	}
 	q := c.q
 	return func() tea.Msg {
-		panels, err := chtop.LoadDashboard(context.Background(), q, "Overview")
+		ctx, cancel := context.WithTimeout(context.Background(), chartsFetchTimeout)
+		defer cancel()
+		panels, err := chtop.LoadDashboard(ctx, q, "Overview")
 		return chartsBootstrapMsg{panels: panels, err: err}
 	}
 }
@@ -92,7 +99,9 @@ func (c *chartsTab) fetchSeriesCmd(idx int, sql string) tea.Cmd {
 	rounding := uint32(c.bucket.Seconds())
 	lookback := uint32(c.lookback.Seconds())
 	return func() tea.Msg {
-		pts, err := chtop.FetchPanelSeries(context.Background(), q, sql, rounding, lookback)
+		ctx, cancel := context.WithTimeout(context.Background(), chartsFetchTimeout)
+		defer cancel()
+		pts, err := chtop.FetchPanelSeries(ctx, q, sql, rounding, lookback)
 		return chartsSeriesMsg{idx: idx, points: pts, err: err}
 	}
 }

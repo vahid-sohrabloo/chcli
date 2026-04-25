@@ -32,8 +32,8 @@ func handleSettings(_ context.Context, hctx *HandlerContext, _ []string) (*Resul
 		cfg.Keymap,
 		cfg.Theme,
 		cfg.Pager,
-		timingEnabled,
-		verticalEnabled,
+		hctx.Timing,
+		hctx.Vertical,
 	)
 	return &Result{Output: out}, nil
 }

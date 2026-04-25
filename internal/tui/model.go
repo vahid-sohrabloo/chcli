@@ -527,7 +527,7 @@ func (m *Model) executeInput() tea.Cmd {
 	}
 
 	// Determine display mode and strip terminators.
-	vertical := metacmd.IsVerticalEnabled()
+	vertical := m.router.Vertical()
 	query := raw
 	if before, ok := strings.CutSuffix(query, `\G`); ok {
 		query = before
@@ -566,7 +566,7 @@ func (m *Model) runWatchQuery() tea.Cmd {
 
 	c := m.conn
 	query := strings.TrimRight(strings.TrimSpace(m.watchQuery), ";")
-	vertical := metacmd.IsVerticalEnabled()
+	vertical := m.router.Vertical()
 	interval := m.watchInterval
 	count := m.watchCount
 
@@ -663,7 +663,7 @@ func (m *Model) handleMetaCmdResult(msg metaCmdResultMsg) (tea.Model, tea.Cmd) {
 	if msg.result.IsQuery {
 		query := strings.TrimSpace(msg.result.Output)
 		c := m.conn
-		vertical := metacmd.IsVerticalEnabled()
+		vertical := m.router.Vertical()
 		return m, func() tea.Msg {
 			result, err := c.Query(context.Background(), query)
 			return queryResultMsg{result: result, err: err, vertical: vertical, query: query}

@@ -19,6 +19,8 @@ type TopModelAPI interface {
 	InModal() bool
 }
 
+var _ Tab = (*processesTab)(nil)
+
 // processesTab wraps a \top model so it can live as a tab inside the monitor.
 type processesTab struct {
 	m TopModelAPI
