@@ -374,7 +374,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.completion.Hide()
 		return m, nil
 
-	// Ctrl+R: interactive fuzzy history search.
+	// Ctrl+R: fuzzy (subsequence) history search.
 	case msg.Code == 'r' && msg.Mod == tea.ModCtrl:
 		queries, _ := m.history.Queries(200)
 		m.search.Activate(queries)
