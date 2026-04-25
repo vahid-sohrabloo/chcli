@@ -52,14 +52,31 @@ tar -xzf "$tmp/chcli.tar.gz" -C "$tmp"
 [ -f "$tmp/$BIN" ] || die "archive did not contain $BIN"
 
 dest="$PREFIX/bin/$BIN"
-sudo=""
-if ! mkdir -p "$PREFIX/bin" 2>/dev/null; then
-  echo "Need sudo to write to $PREFIX/bin"
-  sudo=sudo
-  $sudo mkdir -p "$PREFIX/bin"
-fi
-$sudo mv "$tmp/$BIN" "$dest"
 
+# Decide whether to use sudo. We need it when the destination dir either
+# doesn't exist and we can't create it, OR exists and isn't writable. If we
+# already run as root, sudo is a no-op. If sudo is required but unavailable,
+# fall back to a clear error pointing at PREFIX=$HOME/.local.
+sudo=""
+if [ "$(id -u)" -ne 0 ]; then
+  needs_sudo=0
+  if [ -d "$PREFIX/bin" ]; then
+    [ -w "$PREFIX/bin" ] || needs_sudo=1
+  else
+    mkdir -p "$PREFIX/bin" 2>/dev/null || needs_sudo=1
+  fi
+  if [ "$needs_sudo" -eq 1 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+      echo "Elevating with sudo to write to $PREFIX/bin"
+      sudo=sudo
+    else
+      die "no write access to $PREFIX/bin and sudo not available; re-run with PREFIX=\$HOME/.local"
+    fi
+  fi
+fi
+
+$sudo mkdir -p "$PREFIX/bin"
+$sudo mv "$tmp/$BIN" "$dest"
 $sudo chmod +x "$dest"
 echo "Installed $BIN $VERSION to $dest"
 "$dest" --version
