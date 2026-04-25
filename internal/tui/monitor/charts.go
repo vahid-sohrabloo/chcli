@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
+	"github.com/NimbleMarkets/ntcharts/v2/linechart/timeserieslinechart"
 	"github.com/vahid-sohrabloo/chcli/internal/chtop"
 	"github.com/vahid-sohrabloo/chcli/internal/uitheme"
 )
