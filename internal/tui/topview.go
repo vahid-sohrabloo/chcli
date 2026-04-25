@@ -98,6 +98,9 @@ const topColumnCount = 12
 // sparkSize is the number of samples kept in the rolling sparkline buffers.
 const sparkSize = 30
 
+// topFetchTimeout caps how long a single processes-snapshot fetch can hang.
+const topFetchTimeout = 10 * time.Second
+
 // topIntervals is the cycle applied by the 'd' key.
 var topIntervals = []time.Duration{
 	500 * time.Millisecond,
@@ -239,7 +242,9 @@ func (t *topModel) fetchCmd() tea.Cmd {
 	}
 	f := t.fetcher
 	return func() tea.Msg {
-		snap, rates, err := f.Fetch(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), topFetchTimeout)
+		defer cancel()
+		snap, rates, err := f.Fetch(ctx)
 		if err != nil {
 			return topFetchErrMsg{err: err}
 		}

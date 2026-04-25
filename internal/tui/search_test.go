@@ -43,21 +43,21 @@ func TestFuzzyMatch_ScoreRanking(t *testing.T) {
 	// Word-start matches outrank middle-of-word matches.
 	prefixScore, _, _ := fuzzyMatch("sel", "select 1")
 	middleScore, _, _ := fuzzyMatch("sel", "raselraz") // s,e,l appear but not at a boundary
-	if !(prefixScore > middleScore) {
+	if prefixScore <= middleScore {
 		t.Errorf("prefix score %d not greater than middle %d", prefixScore, middleScore)
 	}
 
 	// Consecutive matches outrank scattered ones of the same length.
 	consec, _, _ := fuzzyMatch("abc", "abcdef")
 	scatter, _, _ := fuzzyMatch("abc", "axbxcx")
-	if !(consec > scatter) {
+	if consec <= scatter {
 		t.Errorf("consecutive %d not greater than scattered %d", consec, scatter)
 	}
 
 	// Shorter haystacks rank higher than longer ones for the same pattern.
 	short, _, _ := fuzzyMatch("sel", "select")
 	long, _, _ := fuzzyMatch("sel", "select something quite long here from a big table somewhere")
-	if !(short > long) {
+	if short <= long {
 		t.Errorf("short %d not greater than long %d", short, long)
 	}
 }

@@ -28,7 +28,9 @@ type Result struct {
 	OpenTop bool
 }
 
-// HandlerContext holds the shared context passed to all handlers.
+// HandlerContext holds the shared context passed to all handlers. The Timing
+// and Vertical fields are session-scoped toggles owned by the router; the TUI
+// reads Vertical via Router.Vertical().
 type HandlerContext struct {
 	Conn       *conn.Conn
 	Cache      *schema.Cache
@@ -37,6 +39,8 @@ type HandlerContext struct {
 	CurrentDB  string
 	LastResult *conn.QueryResult
 	LastQuery  string // SQL text of the most-recently executed query
+	Timing     bool   // \timing toggle
+	Vertical   bool   // \x toggle (expanded display)
 }
 
 // Handler is a function that processes a meta-command.
@@ -80,6 +84,9 @@ func (r *Router) SetLastResult(res *conn.QueryResult) {
 func (r *Router) SetLastQuery(query string) {
 	r.hctx.LastQuery = query
 }
+
+// Vertical reports whether the \x (expanded display) toggle is active.
+func (r *Router) Vertical() bool { return r.hctx.Vertical }
 
 // registerAll registers every known meta-command to its handler function.
 func (r *Router) registerAll() {

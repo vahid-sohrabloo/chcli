@@ -17,7 +17,10 @@ import (
 
 // mergesRefreshInterval is how often FetchMerges is re-run once the tab is
 // at least once-activated.
-const mergesRefreshInterval = 2 * time.Second
+const (
+	mergesRefreshInterval = 2 * time.Second
+	mergesFetchTimeout    = 10 * time.Second
+)
 
 type mergesSnapshotMsg struct {
 	merges []chtop.MergeRow
@@ -25,6 +28,8 @@ type mergesSnapshotMsg struct {
 }
 type mergesErrMsg struct{ err error }
 type mergesTickMsg time.Time
+
+var _ Tab = (*mergesTab)(nil)
 
 type mergesTab struct {
 	q      chtop.ParamQuerier
@@ -61,7 +66,9 @@ func (m *mergesTab) fetchCmd() tea.Cmd {
 	}
 	q := m.q
 	return func() tea.Msg {
-		merges, muts, err := chtop.FetchMerges(context.Background(), q)
+		ctx, cancel := context.WithTimeout(context.Background(), mergesFetchTimeout)
+		defer cancel()
+		merges, muts, err := chtop.FetchMerges(ctx, q)
 		if err != nil {
 			return mergesErrMsg{err: err}
 		}

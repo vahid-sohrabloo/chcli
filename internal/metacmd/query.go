@@ -9,19 +9,10 @@ import (
 	"strings"
 )
 
-// timingEnabled tracks whether query timing output is active.
-var timingEnabled bool
-
-// verticalEnabled tracks whether expanded (vertical) display is active.
-var verticalEnabled bool
-
-// IsVerticalEnabled returns whether vertical (expanded) display is currently enabled.
-func IsVerticalEnabled() bool { return verticalEnabled }
-
 // handleTiming toggles query timing on/off.
-func handleTiming(_ context.Context, _ *HandlerContext, _ []string) (*Result, error) {
-	timingEnabled = !timingEnabled
-	if timingEnabled {
+func handleTiming(_ context.Context, hctx *HandlerContext, _ []string) (*Result, error) {
+	hctx.Timing = !hctx.Timing
+	if hctx.Timing {
 		return &Result{Output: "Timing is on."}, nil
 	}
 	return &Result{Output: "Timing is off."}, nil
@@ -81,9 +72,9 @@ func handlePager(_ context.Context, hctx *HandlerContext, args []string) (*Resul
 }
 
 // handleVerticalToggle toggles expanded (vertical) display on/off.
-func handleVerticalToggle(_ context.Context, _ *HandlerContext, _ []string) (*Result, error) {
-	verticalEnabled = !verticalEnabled
-	if verticalEnabled {
+func handleVerticalToggle(_ context.Context, hctx *HandlerContext, _ []string) (*Result, error) {
+	hctx.Vertical = !hctx.Vertical
+	if hctx.Vertical {
 		return &Result{Output: "Expanded display is on."}, nil
 	}
 	return &Result{Output: "Expanded display is off."}, nil
