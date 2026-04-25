@@ -211,8 +211,8 @@ func TestQueryTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
-	if len(result.Rows) > conn.MaxRows {
-		t.Errorf("expected at most %d rows, got %d", conn.MaxRows, len(result.Rows))
+	if len(result.Rows) > conn.DefaultMaxRows {
+		t.Errorf("expected at most %d rows, got %d", conn.DefaultMaxRows, len(result.Rows))
 	}
 }
 

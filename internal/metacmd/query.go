@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -78,6 +79,20 @@ func handleVerticalToggle(_ context.Context, hctx *HandlerContext, _ []string) (
 		return &Result{Output: "Expanded display is on."}, nil
 	}
 	return &Result{Output: "Expanded display is off."}, nil
+}
+
+// handleMaxRows sets the row cap for SELECT results, or prints the current
+// cap when called without an argument.
+func handleMaxRows(_ context.Context, hctx *HandlerContext, args []string) (*Result, error) {
+	if len(args) == 0 {
+		return &Result{Output: fmt.Sprintf("Max rows: %d", hctx.Conn.MaxRows())}, nil
+	}
+	n, err := strconv.Atoi(args[0])
+	if err != nil || n <= 0 {
+		return nil, errors.New("usage: \\maxrows <positive integer>")
+	}
+	hctx.Conn.SetMaxRows(n)
+	return &Result{Output: fmt.Sprintf("Max rows set to %d", hctx.Conn.MaxRows())}, nil
 }
 
 // handleExplain prepends EXPLAIN (or EXPLAIN AST / EXPLAIN PLAN) to the given

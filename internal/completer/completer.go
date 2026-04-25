@@ -506,6 +506,7 @@ var metaCommands = []struct{ name, desc string }{
 	{`\e`, "Open editor"},
 	{`\pager`, "Toggle/set pager"},
 	{`\x`, "Toggle vertical mode"},
+	{`\maxrows`, "Show or set the SELECT row cap"},
 	{`\f`, "List or execute a snippet"},
 	{`\fs`, "Save a snippet"},
 	{`\fd`, "Delete a snippet"},

@@ -22,6 +22,7 @@ import (
 type Conn struct {
 	raw     chconn.Conn
 	connStr string
+	maxRows int
 }
 
 // ResultColumn holds the name and type of a query result column.
@@ -30,14 +31,16 @@ type ResultColumn struct {
 	Type string
 }
 
-const MaxRows = 2000 // max rows to keep in memory
+// DefaultMaxRows is the row cap used when nothing else is configured.
+const DefaultMaxRows = 2000
 
 // QueryResult holds the result of a SELECT query.
 type QueryResult struct {
 	Columns   []ResultColumn
 	Rows      [][]string
 	TotalRows int    // rows read (may be < actual if truncated)
-	Truncated bool   // true if stopped early at MaxRows
+	Truncated bool   // true if stopped early at the active row cap
+	Cap       int    // active row cap when this query ran (for footer messages)
 	QueryID   string // ClickHouse query ID for cancellation
 	Elapsed   time.Duration
 }
@@ -48,7 +51,18 @@ func Connect(ctx context.Context, connStr string) (*Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	return &Conn{raw: raw, connStr: connStr}, nil
+	return &Conn{raw: raw, connStr: connStr, maxRows: DefaultMaxRows}, nil
+}
+
+// MaxRows returns the active row cap for QueryWithID.
+func (c *Conn) MaxRows() int { return c.maxRows }
+
+// SetMaxRows updates the row cap. Values <= 0 reset to DefaultMaxRows.
+func (c *Conn) SetMaxRows(n int) {
+	if n <= 0 {
+		n = DefaultMaxRows
+	}
+	c.maxRows = n
 }
 
 // QueryAll executes a SQL query and returns ALL rows (no row limit).
@@ -112,10 +126,14 @@ func (c *Conn) Query(ctx context.Context, sql string, progress ...*Progress) (*Q
 func (c *Conn) QueryWithID(ctx context.Context, sql string, queryID string, progress ...*Progress) (*QueryResult, error) {
 	start := time.Now()
 
+	rowCap := c.maxRows
+	if rowCap <= 0 {
+		rowCap = DefaultMaxRows
+	}
 	opts := &chconn.QueryOptions{
 		QueryID: queryID,
 		Settings: chconn.Settings{
-			{Name: "max_result_rows", Value: strconv.Itoa(MaxRows)},
+			{Name: "max_result_rows", Value: strconv.Itoa(rowCap)},
 			{Name: "result_overflow_mode", Value: "break"},
 		},
 	}
@@ -180,6 +198,7 @@ func (c *Conn) QueryWithID(ctx context.Context, sql string, queryID string, prog
 	cols := rows.Columns()
 	result := &QueryResult{
 		Columns: make([]ResultColumn, len(cols)),
+		Cap:     rowCap,
 	}
 	for i, col := range cols {
 		result.Columns[i] = ResultColumn{
@@ -188,7 +207,7 @@ func (c *Conn) QueryWithID(ctx context.Context, sql string, queryID string, prog
 		}
 	}
 
-	// Iterate rows — stop after MaxRows for fast display.
+	// Iterate rows — stop after the active cap for fast display.
 	for rows.Next() {
 		result.TotalRows++
 		vals := rows.Values()
@@ -198,7 +217,7 @@ func (c *Conn) QueryWithID(ctx context.Context, sql string, queryID string, prog
 		}
 		result.Rows = append(result.Rows, row)
 
-		if result.TotalRows >= MaxRows {
+		if result.TotalRows >= rowCap {
 			result.Truncated = true
 			break // don't wait for remaining rows
 		}
