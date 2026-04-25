@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,12 +10,26 @@ import (
 
 const searchMaxVisible = 10
 
-// SearchModel provides an interactive search overlay.
+// searchResult is one filtered entry. matches holds rune indices into display
+// for highlighting; allItems[origIdx] is the canonical text returned on Enter.
+type searchResult struct {
+	origIdx int
+	display string
+	matches []int
+	score   int
+}
+
+// SearchModel provides an interactive fuzzy-search overlay.
+//
+// Matching is subsequence-based: the pattern's runes must appear in order in
+// the haystack (case-insensitive). So `slc25` matches `sellerCustomer2025`.
+// Results are sorted by score; matches at word starts and consecutive runs
+// rank higher, longer haystacks rank lower.
 type SearchModel struct {
 	active     bool
-	query      string   // current search text
-	results    []string // filtered entries
-	allItems   []string // full list
+	query      string
+	results    []searchResult
+	allItems   []string
 	cursor     int
 	maxVisible int
 }
@@ -41,12 +56,12 @@ func (s *SearchModel) Deactivate() {
 	s.active = false
 }
 
-// Selected returns the text of the currently highlighted result, or empty string.
+// Selected returns the original (un-collapsed) text of the highlighted result.
 func (s *SearchModel) Selected() string {
 	if len(s.results) == 0 || s.cursor >= len(s.results) {
 		return ""
 	}
-	return s.results[s.cursor]
+	return s.allItems[s.results[s.cursor].origIdx]
 }
 
 // Update handles key events while the search overlay is active.
@@ -71,7 +86,6 @@ func (s *SearchModel) Update(msg tea.Msg) (selected string, accepted bool) {
 
 	case tea.KeyBackspace, tea.KeyDelete:
 		if len(s.query) > 0 {
-			// Remove last rune (safe for multi-byte runes).
 			runes := []rune(s.query)
 			s.query = string(runes[:len(runes)-1])
 			s.cursor = 0
@@ -89,7 +103,6 @@ func (s *SearchModel) Update(msg tea.Msg) (selected string, accepted bool) {
 		}
 
 	default:
-		// Append printable characters.
 		if kp.Mod == 0 && kp.Code > 0 && !isControlCode(kp.Code) {
 			s.query += string(kp.Code)
 			s.cursor = 0
@@ -100,22 +113,90 @@ func (s *SearchModel) Update(msg tea.Msg) (selected string, accepted bool) {
 	return "", false
 }
 
-// filter rebuilds s.results based on s.query (case-insensitive substring match).
+// filter rebuilds s.results from s.query using fuzzy subsequence match,
+// ranked by score descending.
 func (s *SearchModel) filter() {
+	s.results = s.results[:0]
 	if s.query == "" {
-		// Show all items when query is empty.
-		s.results = make([]string, len(s.allItems))
-		copy(s.results, s.allItems)
+		for i, item := range s.allItems {
+			s.results = append(s.results, searchResult{origIdx: i, display: collapseWhitespace(item)})
+		}
 		return
 	}
-
-	lower := strings.ToLower(s.query)
-	s.results = s.results[:0]
-	for _, item := range s.allItems {
-		if strings.Contains(strings.ToLower(item), lower) {
-			s.results = append(s.results, item)
+	for i, item := range s.allItems {
+		display := collapseWhitespace(item)
+		if score, matches, ok := fuzzyMatch(s.query, display); ok {
+			s.results = append(s.results, searchResult{
+				origIdx: i,
+				display: display,
+				matches: matches,
+				score:   score,
+			})
 		}
 	}
+	sort.SliceStable(s.results, func(i, j int) bool {
+		return s.results[i].score > s.results[j].score
+	})
+}
+
+// fuzzyMatch reports whether pattern's runes appear (case-insensitively) in
+// text in order. Returns the matched rune-offsets in text and a relevance
+// score where higher is better.
+//
+// Scoring favors:
+//   - matches at word starts (after a separator or at index 0): +8 each
+//   - consecutive matches (no gap since previous match): +12 each
+//   - tight matches (penalty per gap rune since previous match): -2 each
+//   - shorter haystacks (length penalty)
+//
+// The consecutive bonus is intentionally larger than the boundary bonus so
+// that compact matches (e.g. "sel" in "SELECT") outrank scattered ones
+// (e.g. "s e l" surrounded by spaces in a comment).
+func fuzzyMatch(pattern, text string) (score int, matchIdxs []int, ok bool) {
+	if pattern == "" {
+		return 0, nil, true
+	}
+	pRunes := []rune(strings.ToLower(pattern))
+	tRunes := []rune(strings.ToLower(text))
+	if len(pRunes) > len(tRunes) {
+		return 0, nil, false
+	}
+	matchIdxs = make([]int, 0, len(pRunes))
+	pi := 0
+	prev := -2
+	for ti := 0; ti < len(tRunes) && pi < len(pRunes); ti++ {
+		if tRunes[ti] != pRunes[pi] {
+			continue
+		}
+		matchIdxs = append(matchIdxs, ti)
+		if ti == 0 || isWordBoundary(tRunes[ti-1]) {
+			score += 8
+		}
+		switch {
+		case prev == -2:
+			// first matched rune — no consecutive/gap accounting
+		case ti == prev+1:
+			score += 12
+		default:
+			score -= 2 * (ti - prev - 1)
+		}
+		prev = ti
+		pi++
+	}
+	if pi < len(pRunes) {
+		return 0, nil, false
+	}
+	score += len(pRunes) * 2
+	score -= len(tRunes) / 8
+	return score, matchIdxs, true
+}
+
+func isWordBoundary(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '_', '-', '.', '/', ',', '(', ')', '[', ']', '{', '}', '"', '\'', '`', ';', ':', '=':
+		return true
+	}
+	return false
 }
 
 // isControlCode reports whether the rune is a non-printable control code that
@@ -141,11 +222,15 @@ var (
 
 	searchNormalStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#565f89"))
+
+	searchMatchStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#e0af68")).
+				Bold(true)
 )
 
 // View renders the search overlay:
 //
-//	reverse-i-search: query_text
+//	fuzzy: query_text
 //	> selected result
 //	  other result
 func (s *SearchModel) View() string {
@@ -155,8 +240,7 @@ func (s *SearchModel) View() string {
 
 	var sb strings.Builder
 
-	// Header line: prompt + query.
-	prompt := searchPromptStyle.Render("reverse-i-search") + ": " + searchQueryStyle.Render(s.query) + "█"
+	prompt := searchPromptStyle.Render("fuzzy") + ": " + searchQueryStyle.Render(s.query) + "█"
 	sb.WriteString(prompt)
 	sb.WriteByte('\n')
 
@@ -165,7 +249,6 @@ func (s *SearchModel) View() string {
 		return sb.String()
 	}
 
-	// Determine visible window around cursor.
 	start := max(s.cursor-s.maxVisible+1, 0)
 	end := start + s.maxVisible
 	if end > len(s.results) {
@@ -174,19 +257,72 @@ func (s *SearchModel) View() string {
 	}
 
 	for i := start; i < end; i++ {
-		text := collapseWhitespace(s.results[i])
-		if len(text) > 120 {
-			text = text[:119] + "…"
+		r := s.results[i]
+		text := r.display
+		matches := r.matches
+		if utf8RuneLen(text) > 120 {
+			text, matches = truncateWithMatches(text, matches, 119)
+			text += "…"
 		}
 		if i == s.cursor {
 			sb.WriteString(searchSelStyle.Render("> " + text))
 		} else {
-			sb.WriteString(searchNormalStyle.Render("  " + text))
+			sb.WriteString("  ")
+			sb.WriteString(renderWithMatches(text, matches))
 		}
 		sb.WriteByte('\n')
 	}
 
 	return sb.String()
+}
+
+// renderWithMatches paints text with searchNormalStyle, except runes whose
+// rune-index is in matches, which use searchMatchStyle. Consecutive runs are
+// rendered together to keep ANSI output compact.
+func renderWithMatches(text string, matches []int) string {
+	if len(matches) == 0 {
+		return searchNormalStyle.Render(text)
+	}
+	hit := make(map[int]bool, len(matches))
+	for _, m := range matches {
+		hit[m] = true
+	}
+	runes := []rune(text)
+	var sb strings.Builder
+	i := 0
+	for i < len(runes) {
+		j := i
+		on := hit[i]
+		for j < len(runes) && hit[j] == on {
+			j++
+		}
+		chunk := string(runes[i:j])
+		if on {
+			sb.WriteString(searchMatchStyle.Render(chunk))
+		} else {
+			sb.WriteString(searchNormalStyle.Render(chunk))
+		}
+		i = j
+	}
+	return sb.String()
+}
+
+// truncateWithMatches returns the rune-prefix of text up to maxRunes runes,
+// dropping any match indices that fall outside that prefix.
+func truncateWithMatches(text string, matches []int, maxRunes int) (string, []int) {
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text, matches
+	}
+	cut := matches
+	for len(cut) > 0 && cut[len(cut)-1] >= maxRunes {
+		cut = cut[:len(cut)-1]
+	}
+	return string(runes[:maxRunes]), cut
+}
+
+func utf8RuneLen(s string) int {
+	return len([]rune(s))
 }
 
 // collapseWhitespace flattens a multi-line query to a single line so it fits
