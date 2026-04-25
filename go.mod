@@ -13,7 +13,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/kevinburke/ssh_config v1.6.0
 	github.com/spf13/cobra v1.10.2
-	github.com/vahid-sohrabloo/chconn/v3 v3.0.0-beta26
+	github.com/vahid-sohrabloo/chconn/v3 v3.0.0-beta27
 	golang.org/x/crypto v0.50.0
 	modernc.org/sqlite v1.48.2
 )
