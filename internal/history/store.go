@@ -3,10 +3,22 @@ package history
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// trimTrailingPerLine removes trailing whitespace from each line of q. Used
+// at the read/write boundary so re-loaded queries don't have invisible
+// padding that pushes the cursor past the end of the visible text.
+func trimTrailingPerLine(q string) string {
+	lines := strings.Split(q, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t")
+	}
+	return strings.Join(lines, "\n")
+}
 
 // Store wraps a SQLite database for query history and bookmarks.
 type Store struct {
@@ -65,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_bookmarks_tag ON bookmarks(tag);
 func (s *Store) Add(query string, durationMs int64, database, profile string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO history (query, executed_at, duration_ms, database_name, profile) VALUES (?, ?, ?, ?, ?)`,
-		query,
+		trimTrailingPerLine(query),
 		time.Now().UTC(),
 		durationMs,
 		database,
@@ -121,7 +133,7 @@ func (s *Store) Queries(limit int) ([]string, error) {
 		if err := rows.Scan(&q); err != nil {
 			return nil, fmt.Errorf("history queries scan: %w", err)
 		}
-		queries = append(queries, q)
+		queries = append(queries, trimTrailingPerLine(q))
 	}
 	return queries, rows.Err()
 }

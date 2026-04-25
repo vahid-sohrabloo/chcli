@@ -80,30 +80,22 @@ func (m *InputModel) SetValue(text string) {
 
 // ReplaceWordAtCursor replaces the word before the cursor with the given text,
 // leaving the cursor right after the inserted text.
+//
+// Implemented as N backspaces followed by InsertString so the textarea's own
+// edit machinery handles the cursor — rebuilding via SetValue + CursorDown
+// breaks when an earlier logical line soft-wraps to multiple visual rows
+// (CursorDown moves through visual rows, not logical lines).
 func (m *InputModel) ReplaceWordAtCursor(prefixLen int, replacement string) {
-	// Move cursor left by prefixLen and delete those characters by
-	// rebuilding the value around the cursor.
 	toCursor := m.ValueToCursor()
-	afterCursor := m.textarea.Value()[len(toCursor):]
-	beforePrefix := toCursor[:len(toCursor)-prefixLen]
+	prefixStart := max(len(toCursor)-prefixLen, 0)
+	runesToDelete := len([]rune(toCursor[prefixStart:]))
 
-	newValue := beforePrefix + replacement + afterCursor
-	m.textarea.SetValue(newValue)
-
-	// Position cursor right after the inserted text.
-	targetPos := len(beforePrefix) + len(replacement)
-	lines := strings.Split(newValue[:targetPos], "\n")
-	targetLine := len(lines) - 1
-	targetCol := len([]rune(lines[targetLine]))
-
-	// Navigate to the correct line and column. SetValue leaves the cursor at
-	// the end of the text; CursorStart only moves to col 0 of the current
-	// line, so we need MoveToBegin to reach (0, 0) before stepping down.
-	m.textarea.MoveToBegin()
-	for range targetLine {
-		m.textarea.CursorDown()
+	backspace := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	for range runesToDelete {
+		m.textarea, _ = m.textarea.Update(backspace)
 	}
-	m.textarea.SetCursorColumn(targetCol)
+	m.textarea.InsertString(replacement)
+	m.resizeToContent()
 }
 
 // Value returns the current textarea content.
@@ -139,16 +131,25 @@ func (m *InputModel) CursorScreenX() int {
 	return borderPadding + promptLen + m.textarea.Column()
 }
 
-// AtFirstLine reports whether the cursor is on the first line of the input.
-// Used by the outer model to decide whether Up should navigate history or
-// move the cursor within a multi-line input.
+// AtFirstLine reports whether the cursor is on the very first visual row of
+// the input — i.e. logical line 0 AND not on a wrapped continuation row. Used
+// by the outer model to decide whether Up should navigate history or move the
+// cursor up a visual row inside a multi-line input.
 func (m *InputModel) AtFirstLine() bool {
-	return m.textarea.Line() == 0
+	if m.textarea.Line() != 0 {
+		return false
+	}
+	return m.textarea.LineInfo().RowOffset == 0
 }
 
-// AtLastLine reports whether the cursor is on the last line of the input.
+// AtLastLine reports whether the cursor is on the very last visual row of the
+// input — i.e. the last logical line AND on its last wrapped row.
 func (m *InputModel) AtLastLine() bool {
-	return m.textarea.Line() == strings.Count(m.textarea.Value(), "\n")
+	if m.textarea.Line() != strings.Count(m.textarea.Value(), "\n") {
+		return false
+	}
+	li := m.textarea.LineInfo()
+	return li.RowOffset >= li.Height-1
 }
 
 // ValueToCursor returns the input text from the start up to the cursor position.
@@ -265,7 +266,12 @@ var (
 				Foreground(lipgloss.Color("#7aa2f7")).
 				Bold(true)
 
-	inputCursorStyle = lipgloss.NewStyle().Reverse(true)
+	// Explicit bg+fg instead of Reverse(true) — terminals that strip trailing
+	// whitespace before drawing won't render a "reverse-styled space" at end
+	// of line, making the cursor disappear when it lands at end-of-line.
+	inputCursorStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#c0caf5")).
+				Foreground(lipgloss.Color("#1a1b26"))
 )
 
 // View renders the input area with syntax-highlighted SQL inside a bordered box.
