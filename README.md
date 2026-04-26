@@ -2,7 +2,7 @@
 
 Modern interactive ClickHouse client for the terminal. Built with Go.
 
-Features smart autocompletion, syntax highlighting, query progress tracking, SSH tunneling, multiple themes, and 30+ meta-commands — everything you need to work with ClickHouse without leaving the terminal.
+Smart autocompletion (tables, columns, functions), syntax highlighting, fuzzy history search (`Ctrl+R`), live query progress, an interactive table viewer with a chart toggle (`F2` / `Ctrl+T`), a multi-tab `\monitor` dashboard (Processes / Merges / Charts / Storage), SSH tunneling, multiple themes, and 30+ meta-commands — everything you need to work with ClickHouse without leaving the terminal.
 
 ![chcli demo](demo/demo.gif)
 
@@ -24,7 +24,7 @@ Installs to `/usr/local/bin/chcli` (uses `sudo` if needed). Override with:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | PREFIX=$HOME/.local sh
-curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | VERSION=v0.1.0 sh
+curl -sSL https://raw.githubusercontent.com/vahid-sohrabloo/chcli/main/install.sh | VERSION=v0.2.0 sh
 ```
 
 ### Go install
