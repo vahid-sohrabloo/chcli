@@ -1,6 +1,6 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
-LDFLAGS  = -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
+LDFLAGS  = -s -w -X github.com/vahid-sohrabloo/chcli/internal/buildinfo.Version=$(VERSION) -X github.com/vahid-sohrabloo/chcli/internal/buildinfo.Commit=$(COMMIT)
 
 .PHONY: build install test test-integration lint clean demo demo-monitor demo-all
 
