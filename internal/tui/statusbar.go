@@ -6,6 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/vahid-sohrabloo/chcli/internal/buildinfo"
 )
 
 // StatusBarModel renders the top bar and bottom hints bar.
@@ -38,7 +40,7 @@ func NewStatusBarModel(host string, port uint16, user, database string, keymap K
 		database:  database,
 		keymap:    keymap,
 		connected: true,
-		version:   "0.1.0",
+		version:   strings.TrimPrefix(buildinfo.Version, "v"),
 	}
 }
 

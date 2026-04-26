@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
+	"github.com/vahid-sohrabloo/chcli/internal/buildinfo"
 	"github.com/vahid-sohrabloo/chcli/internal/config"
 	"github.com/vahid-sohrabloo/chcli/internal/conn"
 	"github.com/vahid-sohrabloo/chcli/internal/history"
@@ -16,16 +17,11 @@ import (
 	"github.com/vahid-sohrabloo/chcli/internal/tunnel"
 )
 
-var (
-	version = "dev"
-	commit  = "none"
-)
-
 func main() {
 	root := &cobra.Command{
 		Use:     "chcli",
 		Short:   "Modern interactive ClickHouse client for the terminal",
-		Version: version + " (" + commit + ")",
+		Version: buildinfo.Version + " (" + buildinfo.Commit + ")",
 		RunE:    run,
 	}
 
