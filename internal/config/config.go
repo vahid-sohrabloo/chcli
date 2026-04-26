@@ -27,6 +27,7 @@ type ConnectionConfig struct {
 	Editor   string `toml:"editor"`
 	TLS      bool   `toml:"tls"`
 	Compress string `toml:"compress"` // "", "lz4", "zstd"
+	MaxRows  int    `toml:"max_rows"` // row cap for SELECT results; 0 = use built-in default
 
 	// SSH tunnel fields — when SSHHost is set, the connection is forwarded
 	// through an SSH bastion before reaching ClickHouse.
@@ -199,6 +200,9 @@ func mergeInto(dst *ConnectionConfig, src ConnectionConfig) {
 	}
 	if src.TLS {
 		dst.TLS = src.TLS
+	}
+	if src.MaxRows != 0 {
+		dst.MaxRows = src.MaxRows
 	}
 	if src.Compress != "" {
 		dst.Compress = src.Compress

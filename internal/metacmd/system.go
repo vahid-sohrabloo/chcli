@@ -24,7 +24,7 @@ func handleRefresh(ctx context.Context, hctx *HandlerContext, _ []string) (*Resu
 func handleSettings(_ context.Context, hctx *HandlerContext, _ []string) (*Result, error) {
 	cfg := hctx.Config.Default
 	out := fmt.Sprintf(
-		"Host:     %s\nPort:     %d\nUser:     %s\nDatabase: %s\nKeymap:   %s\nTheme:    %s\nPager:    %s\nTiming:   %v\nVertical: %v\n",
+		"Host:     %s\nPort:     %d\nUser:     %s\nDatabase: %s\nKeymap:   %s\nTheme:    %s\nPager:    %s\nTiming:   %v\nVertical: %v\nMax rows: %d\n",
 		cfg.Host,
 		cfg.Port,
 		cfg.User,
@@ -34,6 +34,7 @@ func handleSettings(_ context.Context, hctx *HandlerContext, _ []string) (*Resul
 		cfg.Pager,
 		hctx.Timing,
 		hctx.Vertical,
+		hctx.Conn.MaxRows(),
 	)
 	return &Result{Output: out}, nil
 }
@@ -58,6 +59,7 @@ func handleHelp(_ context.Context, _ *HandlerContext, _ []string) (*Result, erro
   \e                  Open editor; run result as query
   \pager [name]       Toggle/set pager
   \x                  Toggle expanded (vertical) display
+  \maxrows [N]        Show or set the SELECT row cap
   \explain [ast|plan] [query]
                       Run EXPLAIN on query (or last query)
   \fmt / \format [query]

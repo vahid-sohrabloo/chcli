@@ -46,7 +46,7 @@ func FormatQueryResult(result *conn.QueryResult, query string, vertical bool, wi
 	sb.WriteString("\n")
 
 	// Rich footer with metrics.
-	footer := formatResultFooter(result.TotalRows, result.Elapsed, result.Truncated)
+	footer := formatResultFooter(result.TotalRows, result.Elapsed, result.Truncated, result.Cap)
 
 	sep := printSep.Render(" │ ")
 	line := printFooter.Render(footer)
@@ -83,14 +83,14 @@ func FormatText(text string) string {
 }
 
 // formatResultFooter returns a brief summary line: "N row(s) | elapsed[truncation note]".
-func formatResultFooter(totalRows int, elapsed fmt.Stringer, truncated bool) string {
+func formatResultFooter(totalRows int, elapsed fmt.Stringer, truncated bool, capRows int) string {
 	rowWord := "rows"
 	if totalRows == 1 {
 		rowWord = "row"
 	}
 	s := fmt.Sprintf("%d %s | %s", totalRows, rowWord, elapsed)
 	if truncated {
-		s += fmt.Sprintf(" (showing first %d)", conn.MaxRows)
+		s += fmt.Sprintf(" (reached cap of %d — raise with \\maxrows N)", capRows)
 	}
 	return s
 }

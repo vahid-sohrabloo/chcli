@@ -114,6 +114,7 @@ func (r *Router) registerAll() {
 	r.handlers["e"] = handleEditor
 	r.handlers["pager"] = handlePager
 	r.handlers["x"] = handleVerticalToggle
+	r.handlers["maxrows"] = handleMaxRows
 	r.handlers["explain"] = handleExplain
 	r.handlers["fmt"] = handleFormat
 	r.handlers["format"] = handleFormat

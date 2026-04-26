@@ -33,7 +33,7 @@ func newTableViewer(result *conn.QueryResult, query string, width, height int) *
 	tv := &tableViewerModel{
 		result: result,
 		query:  query,
-		footer: formatResultFooter(result.TotalRows, result.Elapsed, result.Truncated),
+		footer: formatResultFooter(result.TotalRows, result.Elapsed, result.Truncated, result.Cap),
 		width:  width,
 		height: height,
 		mode:   modeTable,

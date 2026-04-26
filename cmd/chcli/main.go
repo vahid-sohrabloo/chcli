@@ -134,6 +134,9 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer c.Close()
+	if resolved.MaxRows > 0 {
+		c.SetMaxRows(resolved.MaxRows)
+	}
 
 	pool, err := conn.OpenPool(ctx, connStr)
 	if err != nil {

@@ -165,6 +165,7 @@ Save and recall frequently used queries:
 | `\x` | Toggle vertical display |
 | `\explain [query]` | Run EXPLAIN |
 | `\timing` | Toggle execution timing |
+| `\maxrows [N]` | Show or set SELECT row cap (default 2000) |
 | `\pager [cmd]` | Set pager |
 | `\copy <fmt> [path]` | Export to CSV or JSON |
 | `\clip` | Copy result to clipboard |
@@ -217,6 +218,7 @@ keymap = "emacs"           # or "vi"
 theme = "tokyo-night"
 pager = "builtin"
 editor = ""                # uses $EDITOR, then vi
+max_rows = 2000            # cap on SELECT rows kept in memory; \maxrows overrides per-session
 
 # SSH tunnel (optional)
 ssh_host = "bastion.example.com"
