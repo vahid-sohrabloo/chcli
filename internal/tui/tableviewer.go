@@ -49,26 +49,35 @@ func (tv *tableViewerModel) rebuildTable() {
 
 func (tv *tableViewerModel) Update(msg tea.Msg) (closed bool, cmd tea.Cmd) {
 	if kp, ok := msg.(tea.KeyPressMsg); ok {
-		switch kp.Code {
-		case tea.KeyEscape, 'q':
-			if tv.mode == modeChart && tv.chart != nil && tv.chart.pickerOpen() {
-				tv.chart.closePicker()
+		// Ctrl+C exits the viewer regardless of mode. Without this branch the
+		// switch below would treat Ctrl+C as plain 'c' and toggle the chart.
+		if kp.Code == 'c' && kp.Mod == tea.ModCtrl {
+			return true, nil
+		}
+		// Plain keys only — gate on Mod==0 so Ctrl/Alt-modified variants
+		// don't accidentally hit these branches.
+		if kp.Mod == 0 {
+			switch kp.Code {
+			case tea.KeyEscape, 'q':
+				if tv.mode == modeChart && tv.chart != nil && tv.chart.pickerOpen() {
+					tv.chart.closePicker()
+					return false, nil
+				}
+				return true, nil
+			case 'c':
+				if tv.mode == modeTable {
+					if tv.chart == nil {
+						tv.chart = newChartSubview(tv.result, tv.width, tv.height, tv.isWarp)
+						if tv.chart.nonChartable {
+							tv.chart.openPicker()
+						}
+					}
+					tv.mode = modeChart
+				} else {
+					tv.mode = modeTable
+				}
 				return false, nil
 			}
-			return true, nil
-		case 'c':
-			if tv.mode == modeTable {
-				if tv.chart == nil {
-					tv.chart = newChartSubview(tv.result, tv.width, tv.height, tv.isWarp)
-					if tv.chart.nonChartable {
-						tv.chart.openPicker()
-					}
-				}
-				tv.mode = modeChart
-			} else {
-				tv.mode = modeTable
-			}
-			return false, nil
 		}
 	}
 	switch tv.mode {

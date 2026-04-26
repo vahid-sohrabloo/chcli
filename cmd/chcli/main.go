@@ -102,6 +102,18 @@ func run(cmd *cobra.Command, args []string) error {
 	// 3. Resolve config.
 	resolved := cfg.Resolve(profile, flags)
 
+	// Default to lz4 compression on the wire whenever the connection goes
+	// over the network — either a non-loopback host or an SSH tunnel
+	// (which rewrites Host to 127.0.0.1 below, but the underlying transport
+	// is still remote). lz4 is fast and saves bandwidth without a noticeable
+	// CPU cost. Users can still force-disable with `--compress=` (empty).
+	if !cmd.Flags().Changed("compress") && resolved.Compress == "" {
+		isLoopback := resolved.Host == "localhost" || resolved.Host == "127.0.0.1" || resolved.Host == "::1" || resolved.Host == ""
+		if !isLoopback || resolved.SSHHost != "" {
+			resolved.Compress = "lz4"
+		}
+	}
+
 	// 3b. If SSH tunnel is configured, open it and redirect the connection.
 	if resolved.SSHHost != "" {
 		sshCfg := tunnel.SSHConfig{

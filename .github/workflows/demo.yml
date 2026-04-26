@@ -1,0 +1,67 @@
+name: Regenerate demo GIF
+
+# Regenerates demo/demo.gif from demo/demo.tape using vhs and a throwaway
+# ClickHouse service. Triggered manually or on any tag push so each release
+# refreshes the README's hero asset.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        ports:
+          - 9000:9000
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: 1
+        options: >-
+          --health-cmd "clickhouse-client --query 'SELECT 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build chcli
+        run: make build
+
+      - name: Install vhs
+        run: |
+          go install github.com/charmbracelet/vhs@latest
+          sudo apt-get update
+          sudo apt-get install -y ttyd ffmpeg
+
+      - name: Record demo
+        env:
+          CHCLI_TEST_HOST: 127.0.0.1
+        run: vhs demo/demo.tape
+
+      - name: Commit refreshed GIF
+        run: |
+          if git diff --quiet -- demo/demo.gif; then
+            echo "demo/demo.gif unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add demo/demo.gif
+          git commit -m "demo: regenerate demo.gif"
+          git push origin HEAD:main

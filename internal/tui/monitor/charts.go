@@ -37,11 +37,12 @@ type chartsTickMsg time.Time
 var _ Tab = (*chartsTab)(nil)
 
 type chartsTab struct {
-	q         chtop.ParamQuerier
-	panels    []chtop.Panel
-	series    [][]chtop.Point
-	seriesErr []error
-	bootErr   error
+	q             chtop.ParamQuerier
+	panels        []chtop.Panel
+	series        [][]chtop.Point
+	seriesErr     []error
+	seriesFetched []bool // true once a fetch has completed for that panel
+	bootErr       error
 
 	lookback time.Duration
 	bucket   time.Duration
@@ -89,6 +90,13 @@ func (c *chartsTab) refreshAllCmd() tea.Cmd {
 	}
 	cmds := make([]tea.Cmd, 0, len(c.panels))
 	for i, p := range c.panels {
+		// Skip panels whose SQL is broken on this server (e.g. the SQL
+		// references columns/regexes that don't match anything). Without
+		// this, the tab hammers the server with the same failing query
+		// every chartsRefreshInterval. Manual refresh ('r') still retries.
+		if c.seriesErr[i] != nil {
+			continue
+		}
 		cmds = append(cmds, c.fetchSeriesCmd(i, p.SQL))
 	}
 	return tea.Batch(cmds...)
@@ -116,6 +124,7 @@ func (c *chartsTab) onPanels(panels []chtop.Panel) {
 	c.panels = panels
 	c.series = make([][]chtop.Point, len(panels))
 	c.seriesErr = make([]error, len(panels))
+	c.seriesFetched = make([]bool, len(panels))
 }
 
 func (c *chartsTab) Update(msg tea.Msg) tea.Cmd {
@@ -137,6 +146,7 @@ func (c *chartsTab) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case chartsSeriesMsg:
 		if v.idx >= 0 && v.idx < len(c.series) {
+			c.seriesFetched[v.idx] = true
 			if v.err != nil {
 				c.seriesErr[v.idx] = v.err
 			} else {
@@ -169,6 +179,11 @@ func (c *chartsTab) handleKey(kp tea.KeyPressMsg) tea.Cmd {
 		c.bucket = nextInCycle(bucketCycle, c.bucket)
 		return c.refreshAllCmd()
 	case 'r':
+		// Manual refresh — clear previous errors so failed panels get
+		// retried (refreshAllCmd skips panels with non-nil seriesErr).
+		for i := range c.seriesErr {
+			c.seriesErr[i] = nil
+		}
 		return tea.Batch(c.bootstrapCmd(), c.refreshAllCmd())
 	case tea.KeyPgDown:
 		maxRow := max((len(c.panels)+1)/2-1, 0)
@@ -242,12 +257,23 @@ func (c *chartsTab) renderPanel(idx, w, h int, title, errStyle, muted lipgloss.S
 	p := c.panels[idx]
 	if c.seriesErr[idx] != nil {
 		header := title.Render("  " + p.Title)
-		return header + "\n" + errStyle.Render("  Error: "+c.seriesErr[idx].Error())
+		// Server-side panel errors (a missing column on an old version, an
+		// arrayJoin of an empty Nothing-array on a fresh server, ...) are
+		// per-panel and shouldn't dominate the grid. Strip wrapping prefixes
+		// and trim to fit the panel cell.
+		msg := shortenPanelErr(c.seriesErr[idx].Error(), max(w-4, 20))
+		return header + "\n" + muted.Render("  (no data)") + "\n" + errStyle.Render("  "+msg)
 	}
 	pts := c.series[idx]
 	if len(pts) == 0 {
 		header := title.Render("  " + p.Title)
-		return header + "\n" + muted.Render("  (loading)")
+		// Distinguish "still in flight" from "fetched, empty result". Both
+		// previously rendered as "(loading)" which made empty panels look
+		// stuck.
+		if !c.seriesFetched[idx] {
+			return header + "\n" + muted.Render("  (loading)")
+		}
+		return header + "\n" + muted.Render("  (no data)")
 	}
 
 	lc := timeserieslinechart.New(max(w-2, 10), max(h-2, 3))
@@ -258,4 +284,22 @@ func (c *chartsTab) renderPanel(idx, w, h int, title, errStyle, muted lipgloss.S
 	last := pts[len(pts)-1].V
 	headerWithVal := title.Render(fmt.Sprintf("  %-*s %10.2f", max(w-14, 1), p.Title, last))
 	return headerWithVal + "\n" + lc.View()
+}
+
+// shortenPanelErr trims chconn's wrapping noise off a panel SQL error and
+// truncates the remainder to width.
+func shortenPanelErr(msg string, width int) string {
+	// Drop wrapping prefixes added by chconn / chtop layers.
+	for _, prefix := range []string{"panel fetch: ", "query: ", "DB::Exception "} {
+		msg = strings.TrimPrefix(msg, prefix)
+	}
+	// Cut at first newline — only show the first line of multi-line errors.
+	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+		msg = msg[:i]
+	}
+	runes := []rune(msg)
+	if width >= 4 && len(runes) > width {
+		return string(runes[:width-1]) + "…"
+	}
+	return msg
 }

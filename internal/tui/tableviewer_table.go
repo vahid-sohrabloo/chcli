@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -47,18 +49,31 @@ func newTableSubview(result *conn.QueryResult) *tableSubview {
 	return &tableSubview{allCols: cols, allRows: rows}
 }
 
+// rebuild reconstructs the inner table.Model from current state. Preserves
+// the cursor position across rebuilds so horizontal scroll (Left/Right)
+// doesn't reset the highlighted row to 0.
 func (t *tableSubview) rebuild(width, height int, isWarp bool) {
-	cols := t.allCols
-	rows := t.allRows
-	if t.colOffset > 0 && t.colOffset < len(cols) {
-		cols = cols[t.colOffset:]
-		newRows := make([]table.Row, len(rows))
-		for i, r := range rows {
-			if t.colOffset < len(r) {
-				newRows[i] = r[t.colOffset:]
-			}
+	// Build the visible columns: a sticky "#" column on the left, then the
+	// data columns starting at colOffset.
+	rowNumWidth := max(numDigits(len(t.allRows)), 2)
+	cols := make([]table.Column, 0, len(t.allCols)+1)
+	cols = append(cols, table.Column{Title: "#", Width: rowNumWidth})
+	dataCols := t.allCols
+	if t.colOffset > 0 && t.colOffset < len(dataCols) {
+		dataCols = dataCols[t.colOffset:]
+	}
+	cols = append(cols, dataCols...)
+
+	rows := make([]table.Row, len(t.allRows))
+	for i, r := range t.allRows {
+		out := make(table.Row, 0, len(r)+1)
+		out = append(out, fmt.Sprintf("%*d", rowNumWidth, i+1))
+		dataCells := r
+		if t.colOffset > 0 && t.colOffset < len(dataCells) {
+			dataCells = dataCells[t.colOffset:]
 		}
-		rows = newRows
+		out = append(out, dataCells...)
+		rows[i] = out
 	}
 
 	h := height - 3
@@ -69,6 +84,8 @@ func (t *tableSubview) rebuild(width, height int, isWarp bool) {
 		h = 5
 	}
 
+	prevCursor := max(t.table.Cursor(), 0)
+
 	t.table = table.New(
 		table.WithColumns(cols),
 		table.WithRows(rows),
@@ -77,6 +94,9 @@ func (t *tableSubview) rebuild(width, height int, isWarp bool) {
 		table.WithStyles(TableStyles()),
 		table.WithFocused(true),
 	)
+	if prevCursor > 0 && prevCursor < len(rows) {
+		t.table.SetCursor(prevCursor)
+	}
 }
 
 // Update returns (handled, cmd). handled=false means "parent should apply fallbacks".
@@ -108,3 +128,15 @@ func (t *tableSubview) View() string {
 
 func (t *tableSubview) ColOffset() int { return t.colOffset }
 func (t *tableSubview) TotalCols() int { return len(t.allCols) }
+
+func numDigits(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	d := 0
+	for n > 0 {
+		d++
+		n /= 10
+	}
+	return d
+}

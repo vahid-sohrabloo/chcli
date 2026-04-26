@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/vahid-sohrabloo/chcli/internal/clipboard"
 )
 
 // handleClip copies the last query result to the system clipboard in TSV format.
@@ -34,18 +35,8 @@ func handleClip(_ context.Context, hctx *HandlerContext, _ []string) (*Result, e
 
 // copyToClipboard writes text to the system clipboard using the first available tool.
 func copyToClipboard(text string) (*Result, error) {
-	cmds := [][]string{
-		{"xclip", "-selection", "clipboard"},
-		{"xsel", "--clipboard", "--input"},
-		{"pbcopy"},
-		{"wl-copy"},
+	if err := clipboard.Copy(text); err != nil {
+		return nil, err
 	}
-	for _, args := range cmds {
-		c := exec.Command(args[0], args[1:]...)
-		c.Stdin = strings.NewReader(text)
-		if err := c.Run(); err == nil {
-			return &Result{Output: fmt.Sprintf("Copied %d bytes to clipboard.", len(text))}, nil
-		}
-	}
-	return nil, errors.New("no clipboard tool found (install xclip, xsel, or wl-copy)")
+	return &Result{Output: fmt.Sprintf("Copied %d bytes to clipboard.", len(text))}, nil
 }

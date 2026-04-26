@@ -190,7 +190,20 @@ func (c *Conn) QueryWithID(ctx context.Context, sql string, queryID string, prog
 	}
 	rows, err := c.raw.QueryWithOption(ctx, sql, opts)
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		// Idle ClickHouse connections eventually time out server-side
+		// (DB::NetException 209: "Timeout exceeded while reading from
+		// socket") and the next query surfaces a stale-socket error. If
+		// chconn reports the connection as closed, reconnect and retry
+		// once so the user doesn't have to re-issue the query. This
+		// mirrors QueryAll's behavior for internal queries.
+		if c.raw.IsClosed() {
+			if rerr := c.Reconnect(ctx); rerr == nil {
+				rows, err = c.raw.QueryWithOption(ctx, sql, opts)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("query: %w", err)
+		}
 	}
 	defer rows.Close()
 

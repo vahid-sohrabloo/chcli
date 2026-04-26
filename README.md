@@ -4,6 +4,14 @@ Modern interactive ClickHouse client for the terminal. Built with Go.
 
 Features smart autocompletion, syntax highlighting, query progress tracking, SSH tunneling, multiple themes, and 30+ meta-commands — everything you need to work with ClickHouse without leaving the terminal.
 
+![chcli demo](demo/demo.gif)
+
+The `\monitor` multi-tab dashboard:
+
+![chcli \monitor demo](demo/monitor.gif)
+
+> Demos are regenerated from [`demo/demo.tape`](demo/demo.tape) and [`demo/monitor.tape`](demo/monitor.tape) with [VHS](https://github.com/charmbracelet/vhs) — `make demo-all` (needs a local ClickHouse on `127.0.0.1:9000`).
+
 ## Install
 
 ### One-liner (Linux / macOS)
@@ -140,7 +148,7 @@ Save and recall frequently used queries:
 | `--password` | | | Password |
 | `--database` | `-d` | `default` | Database |
 | `--profile` | | | Named profile from config |
-| `--compress` | | | `lz4` or `zstd` |
+| `--compress` | | auto | `lz4` or `zstd`. Auto-defaults to `lz4` for non-loopback hosts and SSH tunnels; pass `--compress=` (empty) to force-disable. |
 | `--ssh-host` | | | SSH bastion host |
 | `--ssh-user` | | | SSH username |
 | `--ssh-key` | | auto-detect | Path to SSH private key |
@@ -219,6 +227,7 @@ theme = "tokyo-night"
 pager = "builtin"
 editor = ""                # uses $EDITOR, then vi
 max_rows = 2000            # cap on SELECT rows kept in memory; \maxrows overrides per-session
+compress = "lz4"           # "lz4", "zstd", or "" — auto-defaults to "lz4" for remote hosts and SSH tunnels
 
 # SSH tunnel (optional)
 ssh_host = "bastion.example.com"
