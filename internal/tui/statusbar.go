@@ -117,7 +117,7 @@ func (m *StatusBarModel) HintsBarView() string {
 		}
 	default:
 		leftHints = []string{
-			hint("Tab", "complete"), hint("↑↓", "history"), hint("Ctrl+R", "fuzzy"), hint("F2", "table view"),
+			hint("Tab", "complete"), hint("↑↓", "history"), hint("Ctrl+R", "fuzzy"), hint("F2/Ctrl+T", "table view"),
 		}
 	}
 

@@ -343,8 +343,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	// F2: open interactive table viewer for last result.
-	case msg.Code == tea.KeyF2 && m.lastResult != nil:
+	// F2 / Ctrl+T: open interactive table viewer for last result. Ctrl+T is
+	// kept as a recordable alias for terminals/tools that don't propagate
+	// function keys (e.g. vhs <0.12).
+	case (msg.Code == tea.KeyF2 || (msg.Code == 't' && msg.Mod == tea.ModCtrl)) && m.lastResult != nil:
 		tv := newTableViewer(m.lastResult, m.lastQuery, m.width, m.height)
 		tv.isWarp = m.isWarp
 		m.tableViewer = tv
@@ -726,11 +728,14 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	// Table viewer takes over the entire screen.
+	// Table viewer takes over the entire screen. We deliberately do NOT
+	// capture mouse events here — without capture, the terminal's native
+	// drag-to-select still works inside the viewer so users can yank cells
+	// with the system mouse selection. Keyboard `y` is still the
+	// recommended way to copy a clean TSV row.
 	if m.tableViewer != nil {
 		v := tea.NewView(m.tableViewer.View())
 		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
 

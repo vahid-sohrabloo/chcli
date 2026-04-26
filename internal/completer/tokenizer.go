@@ -98,16 +98,39 @@ func DetectClause(input string) Clause {
 				}
 			}
 		case "ENGINE":
-			return ClauseEngine
+			// ENGINE is a clause keyword only inside CREATE/ALTER TABLE
+			// (where it precedes the engine name). Bare "engine" elsewhere
+			// is almost always a column name in SELECT/WHERE/etc., so don't
+			// treat it as a clause unless the statement starts with CREATE
+			// or ALTER.
+			if isCreateOrAlter(tokens) {
+				return ClauseEngine
+			}
 		case "=":
-			// Check if "=" follows ENGINE token.
-			if i > 0 && tokens[i-1] == "ENGINE" {
+			// Check if "=" follows ENGINE token. Same gating as bare
+			// ENGINE — only meaningful inside CREATE/ALTER TABLE.
+			if i > 0 && tokens[i-1] == "ENGINE" && isCreateOrAlter(tokens) {
 				return ClauseEngine
 			}
 		}
 	}
 
 	return ClauseUnknown
+}
+
+// isCreateOrAlter reports whether the token list begins with a statement
+// that legitimately uses an ENGINE clause (CREATE TABLE, CREATE MATERIALIZED
+// VIEW, ALTER TABLE, ATTACH TABLE, etc.).
+func isCreateOrAlter(tokens []string) bool {
+	for _, t := range tokens {
+		switch t {
+		case "CREATE", "ALTER", "ATTACH":
+			return true
+		case "SELECT", "INSERT", "DELETE", "UPDATE", "WITH", "EXPLAIN", "DESCRIBE":
+			return false
+		}
+	}
+	return false
 }
 
 // TableRef represents a table reference with optional alias and database.
