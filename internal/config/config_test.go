@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -251,6 +252,28 @@ func TestConnectionString(t *testing.T) {
 			},
 			want: "clickhouse://reader@secure.example.com:9440/logs?sslmode=verify-ca",
 		},
+		{
+			name: "password with hash characters (issue #32)",
+			cc: config.ConnectionConfig{
+				Host:     "localhost",
+				Port:     9000,
+				User:     "default",
+				Password: "TestPass123##",
+				Database: "default",
+			},
+			want: "clickhouse://default:TestPass123%23%23@localhost:9000/default",
+		},
+		{
+			name: "password with reserved URL characters",
+			cc: config.ConnectionConfig{
+				Host:     "localhost",
+				Port:     9000,
+				User:     "admin",
+				Password: "p@ss:wo/rd?#",
+				Database: "default",
+			},
+			want: "clickhouse://admin:p%40ss%3Awo%2Frd%3F%23@localhost:9000/default",
+		},
 	}
 
 	for _, tc := range tests {
@@ -258,6 +281,16 @@ func TestConnectionString(t *testing.T) {
 			got := tc.cc.ConnectionString()
 			if got != tc.want {
 				t.Errorf("ConnectionString() = %q, want %q", got, tc.want)
+			}
+			u, err := url.Parse(got)
+			if err != nil {
+				t.Fatalf("url.Parse(%q) failed: %v", got, err)
+			}
+			if u.User.Username() != tc.cc.User {
+				t.Errorf("decoded user = %q, want %q", u.User.Username(), tc.cc.User)
+			}
+			if pw, _ := u.User.Password(); pw != tc.cc.Password {
+				t.Errorf("decoded password = %q, want %q", pw, tc.cc.Password)
 			}
 		})
 	}
