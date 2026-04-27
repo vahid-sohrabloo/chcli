@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -94,17 +95,20 @@ func (c *Config) Resolve(profile string, flags ConnectionConfig) ConnectionConfi
 //	clickhouse://user@host:port/database          (no password)
 //	clickhouse://user:password@host:port/database (with password)
 //
+// User, password, and database are percent-encoded so credentials containing
+// URL-reserved characters (e.g. '#', '@', '/', ':', '?') round-trip correctly.
 // When TLS is true, "?sslmode=verify-ca" is appended.
 func (cc ConnectionConfig) ConnectionString() string {
-	var userInfo string
-	if cc.Password != "" {
-		userInfo = fmt.Sprintf("%s:%s", cc.User, cc.Password)
-	} else {
-		userInfo = cc.User
+	u := url.URL{
+		Scheme: "clickhouse",
+		Host:   net.JoinHostPort(cc.Host, strconv.FormatUint(uint64(cc.Port), 10)),
+		Path:   "/" + cc.Database,
 	}
-
-	hostPort := net.JoinHostPort(cc.Host, strconv.FormatUint(uint64(cc.Port), 10))
-	url := fmt.Sprintf("clickhouse://%s@%s/%s", userInfo, hostPort, cc.Database)
+	if cc.Password != "" {
+		u.User = url.UserPassword(cc.User, cc.Password)
+	} else if cc.User != "" {
+		u.User = url.User(cc.User)
+	}
 
 	var params []string
 	if cc.TLS {
@@ -114,10 +118,10 @@ func (cc ConnectionConfig) ConnectionString() string {
 		params = append(params, "compress="+cc.Compress)
 	}
 	if len(params) > 0 {
-		url += "?" + strings.Join(params, "&")
+		u.RawQuery = strings.Join(params, "&")
 	}
 
-	return url
+	return u.String()
 }
 
 // SaveSnippet persists a named SQL snippet to the config file, creating it if
